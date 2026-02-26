@@ -17,7 +17,7 @@ from typing import (
 
 import logfire_api as logfire
 import tenacity as t
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError
 
 from .chat import Chat, Message, Role
 from .context import RunContext
@@ -25,7 +25,54 @@ from .errors.serializable import Error
 from .errors.workflow_errors import WorkflowError
 from .generators import BaseGenerator, GenerationParams
 from .templates import MessageTemplate, PromptsManager, get_prompts_manager
-from .tools.tool import Tool
+from .tools.tool import Tool, ToolCall
+
+
+class ToolHook:
+    """Base class for tool lifecycle hooks.
+
+    Override any method you need -- all are no-ops by default.
+    ``before_tool_call`` returning ``False`` blocks execution.
+    """
+
+    async def before_tool_call(
+        self, tool: Tool, tool_call: ToolCall, arguments: dict[str, Any]
+    ) -> bool | None:
+        """Called before a tool is executed.
+
+        Return ``False`` to block the tool call. Any other value
+        (including ``None``) allows execution to proceed.
+
+        Parameters
+        ----------
+        tool : Tool
+            The tool about to be executed.
+        tool_call : ToolCall
+            The raw tool-call object from the LLM response.
+        arguments : dict[str, Any]
+            Parsed arguments that will be passed to the tool.
+
+        Returns
+        -------
+        bool or None
+            ``False`` to block execution; anything else to allow it.
+        """
+        return None
+
+    async def after_tool_call(
+        self, tool: Tool, tool_call: ToolCall, result: Any
+    ) -> None:
+        """Called after a tool has been executed.
+
+        Parameters
+        ----------
+        tool : Tool
+            The tool that was executed.
+        tool_call : ToolCall
+            The raw tool-call object from the LLM response.
+        result : Any
+            The return value produced by the tool.
+        """
 
 
 class TemplateReference(BaseModel):
@@ -154,18 +201,35 @@ class _StepRunner:
         if not chat.last or not chat.last.tool_calls:
             return
 
-        for tool_call in chat.last.tool_calls:
-            if tool_call.function.name not in self._workflow.tools:
+        for tc in chat.last.tool_calls:
+            if tc.function.name not in self._workflow.tools:
                 continue  # TODO: raise an error?
 
-            tool = self._workflow.tools[tool_call.function.name]
-            tool_response = await tool.run(
-                json.loads(tool_call.function.arguments),
-                ctx=chat.context,
-            )
+            tool = self._workflow.tools[tc.function.name]
+            arguments = json.loads(tc.function.arguments)
+
+            blocked = False
+            for hook in self._workflow._tool_hooks:
+                if await hook.before_tool_call(tool, tc, arguments) is False:
+                    blocked = True
+                    break
+
+            if blocked:
+                yield Message(
+                    role="tool",
+                    tool_call_id=tc.id,
+                    content=json.dumps({"error": "Tool call was blocked by a hook."}),
+                )
+                continue
+
+            tool_response = await tool.run(arguments, ctx=chat.context)
+
+            for hook in self._workflow._tool_hooks:
+                await hook.after_tool_call(tool, tc, tool_response)
+
             yield Message(
                 role="tool",
-                tool_call_id=tool_call.id,
+                tool_call_id=tc.id,
                 content=json.dumps(tool_response),
             )
 
@@ -243,6 +307,7 @@ class ChatWorkflow(BaseModel, Generic[OutputType]):
     prompt_manager: PromptsManager = Field(default_factory=get_prompts_manager)
     context: RunContext = Field(default_factory=RunContext)
     error_policy: ErrorPolicy = Field(default=ErrorPolicy.RAISE)
+    _tool_hooks: list[ToolHook] = PrivateAttr(default_factory=list)
 
     def chat(
         self, message: str | Message | MessageTemplate, role: Role = "user"
@@ -340,6 +405,23 @@ class ChatWorkflow(BaseModel, Generic[OutputType]):
     def on_error(self, error_policy: ErrorPolicy) -> Self:
         """Set the error handling behavior for the workflow."""
         return self.model_copy(update={"error_policy": error_policy})
+
+    def with_tool_hooks(self, *hooks: ToolHook) -> Self:
+        """Add tool lifecycle hooks to the workflow.
+
+        Parameters
+        ----------
+        *hooks : ToolHook
+            Hooks to add.
+
+        Returns
+        -------
+        ChatWorkflow
+            The workflow instance for method chaining.
+        """
+        copy = self.model_copy()
+        copy._tool_hooks = [*self._tool_hooks, *hooks]
+        return copy
 
     @asynccontextmanager
     async def steps(self, max_steps: int | None = None) -> AsyncIterator[StepGenerator]:
