@@ -112,6 +112,7 @@ async def test_before_hook_blocks_execution():
     assert not fn_called
     tool_msgs = [m for m in chat.messages if m.role == "tool"]
     assert len(tool_msgs) == 1
+    assert isinstance(tool_msgs[0].content, str)
     assert "blocked" in tool_msgs[0].content.lower()
 
 

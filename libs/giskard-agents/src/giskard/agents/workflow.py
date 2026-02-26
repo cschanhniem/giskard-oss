@@ -31,8 +31,11 @@ from .tools.tool import Tool, ToolCall
 class ToolHook:
     """Base class for tool lifecycle hooks.
 
+    Hooks are executed sequentially in the order they are added to the workflow.
+
     Override any method you need -- all are no-ops by default.
-    ``before_tool_call`` returning ``False`` blocks execution.
+    ``before_tool_call`` returning ``False`` blocks execution; subsequent
+    hooks' ``before_tool_call`` methods are not called in that case.
     """
 
     async def before_tool_call(
