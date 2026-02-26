@@ -23,7 +23,7 @@ from .chat import Chat, Message, Role
 from .context import RunContext
 from .errors.serializable import Error
 from .errors.workflow_errors import WorkflowError
-from .generators import BaseGenerator, GenerationParams
+from .generators import BaseGenerator, GenerationParams, StreamChunk
 from .templates import MessageTemplate, PromptsManager, get_prompts_manager
 from .tools.tool import Tool
 
@@ -82,6 +82,27 @@ class _StepRunner:
         self._params = params
         self._init_chat = init_chat
 
+    def _build_step(
+        self,
+        chat: Chat[Any],
+        message: Message,
+        previous: WorkflowStep | None,
+        index: int,
+    ) -> WorkflowStep:
+        step = WorkflowStep(
+            workflow=self._workflow,
+            chat=chat,
+            message=message,
+            previous=previous,
+            index=index,
+        )
+        logfire.info(
+            "step.completed",
+            step_index=step.index,
+            message=step.message,
+        )
+        return step
+
     async def execute(
         self, max_steps: int | None
     ) -> AsyncGenerator[WorkflowStep, None]:
@@ -100,53 +121,95 @@ class _StepRunner:
         if max_steps is not None and max_steps <= 0:
             return
 
-        chat = self._init_chat  # will be cloned for each step
-
+        chat = self._init_chat
         step = None
         step_index = 0
+
         while max_steps is None or step_index < max_steps:
-            # First, consume any pending tool calls on the current chat
             async for tool_message in self._run_tools(chat):
                 chat = chat.clone().add(tool_message)
-                step = WorkflowStep(
-                    workflow=self._workflow,
-                    chat=chat,
-                    message=tool_message,
-                    previous=step,
-                    index=step_index,
-                )
-                logfire.info(
-                    "step.completed",
-                    step_index=step.index,
-                    message=step.message,
-                )
+                step = self._build_step(chat, tool_message, step, step_index)
                 yield step
 
                 step_index += 1
                 if max_steps is not None and step_index >= max_steps:
                     return
 
-            # Now we run the generator to create a completion
             message = await self._run_completion(chat)
             chat = chat.clone().add(message)
-            step = WorkflowStep(
-                workflow=self._workflow,
-                chat=chat,
-                message=message,
-                previous=step,
-                index=step_index,
-            )
-            logfire.info(
-                "step.completed",
-                step_index=step.index,
-                message=step.message,
-            )
+            step = self._build_step(chat, message, step, step_index)
             yield step
             step_index += 1
+
             if max_steps is not None and step_index >= max_steps:
                 break
+            if not message.tool_calls:
+                break
 
-            # If the last message has no tool calls, we're done.
+    async def execute_streaming(
+        self, max_steps: int | None
+    ) -> AsyncGenerator[StreamChunk | WorkflowStep, None]:
+        """Drive the workflow, streaming completion tokens as they arrive.
+
+        Tool-result steps are yielded as ``WorkflowStep`` (same as
+        ``execute``). Completion steps first yield incremental
+        ``StreamChunk`` objects, then a final ``WorkflowStep`` once the
+        full message is assembled.
+
+        Parameters
+        ----------
+        max_steps : int or None
+            Maximum number of steps to run.
+
+        Yields
+        ------
+        StreamChunk or WorkflowStep
+            Chunks for in-progress completions, steps for completed messages.
+        """
+        if max_steps is not None and max_steps <= 0:
+            return
+
+        chat = self._init_chat
+        step = None
+        step_index = 0
+
+        while max_steps is None or step_index < max_steps:
+            async for tool_message in self._run_tools(chat):
+                chat = chat.clone().add(tool_message)
+                step = self._build_step(chat, tool_message, step, step_index)
+                yield step
+
+                step_index += 1
+                if max_steps is not None and step_index >= max_steps:
+                    return
+
+            # Stream the completion token by token
+            accumulated_content = ""
+            tool_calls: list | None = None
+            finish_reason: str | None = None
+
+            async for chunk in self._workflow.generator.stream(
+                chat.messages, self._params
+            ):
+                yield chunk
+                accumulated_content += chunk.delta
+                if chunk.finish_reason:
+                    finish_reason = chunk.finish_reason
+                if chunk.tool_calls:
+                    tool_calls = chunk.tool_calls
+
+            message = Message(
+                role="assistant",
+                content=accumulated_content or None,
+                tool_calls=tool_calls,
+            )
+            chat = chat.clone().add(message)
+            step = self._build_step(chat, message, step, step_index)
+            yield step
+            step_index += 1
+
+            if max_steps is not None and step_index >= max_steps:
+                break
             if not message.tool_calls:
                 break
 
@@ -363,6 +426,39 @@ class ChatWorkflow(BaseModel, Generic[OutputType]):
 
         runner = _StepRunner(self, params, init_chat)
         agen = runner.execute(max_steps)
+        try:
+            yield agen
+        finally:
+            await agen.aclose()
+
+    @asynccontextmanager
+    async def stream_steps(
+        self, max_steps: int | None = None
+    ) -> AsyncIterator[AsyncGenerator[StreamChunk | WorkflowStep, None]]:
+        """Stream tokens and steps from the workflow.
+
+        Works like ``steps()`` but yields ``StreamChunk`` objects for
+        in-progress completions in addition to ``WorkflowStep`` objects.
+
+        Parameters
+        ----------
+        max_steps : int or None
+            Maximum number of steps to run. If None, runs until completion.
+
+        Yields
+        ------
+        AsyncGenerator[StreamChunk | WorkflowStep, None]
+            An async generator producing both ``StreamChunk`` and
+            ``WorkflowStep`` instances.
+        """
+        params = GenerationParams(
+            tools=list(self.tools.values()),
+            response_format=self.output_model,
+        )
+        init_chat = await self._init_chat()
+
+        runner = _StepRunner(self, params, init_chat)
+        agen = runner.execute_streaming(max_steps)
         try:
             yield agen
         finally:

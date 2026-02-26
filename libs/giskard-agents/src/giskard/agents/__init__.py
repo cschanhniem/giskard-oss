@@ -2,7 +2,7 @@ from .chat import Chat, Message
 from .context import RunContext
 from .embeddings import EmbeddingModel
 from .errors import Error, WorkflowError
-from .generators import Generator
+from .generators import Generator, StreamChunk
 from .rate_limiter import (
     RateLimiter,
     RateLimiterStrategy,
@@ -44,4 +44,5 @@ __all__ = [
     "WorkflowError",
     "Error",
     "EmbeddingModel",
+    "StreamChunk",
 ]

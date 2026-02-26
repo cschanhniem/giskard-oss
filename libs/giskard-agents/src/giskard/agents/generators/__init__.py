@@ -1,4 +1,4 @@
-from .base import BaseGenerator, GenerationParams, Response
+from .base import BaseGenerator, GenerationParams, Response, StreamChunk
 from .litellm_generator import LiteLLMGenerator
 from .mixins import WithRateLimiter
 
@@ -12,4 +12,5 @@ __all__ = [
     "BaseGenerator",
     "LiteLLMGenerator",
     "WithRateLimiter",
+    "StreamChunk",
 ]

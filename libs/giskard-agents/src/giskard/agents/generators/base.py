@@ -1,12 +1,13 @@
 import asyncio
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, Literal, Type
 
 from giskard.core import Discriminated, discriminated_base
 from pydantic import BaseModel, Field
 
 from ..chat import Message, Role
-from ..tools import Tool
+from ..tools import Tool, ToolCall
 
 if TYPE_CHECKING:
     from ..workflow import ChatWorkflow
@@ -32,6 +33,18 @@ class GenerationParams(BaseModel):
     max_tokens: int | None = Field(default=None)
     response_format: Type[BaseModel] | None = Field(default=None)
     tools: list[Tool] = Field(default_factory=list)
+
+
+class StreamChunk(BaseModel):
+    """A single chunk from a streaming completion."""
+
+    delta: str = Field(default="", description="Incremental text token from the model.")
+    finish_reason: str | None = Field(
+        default=None, description="Non-null when the stream is complete (e.g. 'stop', 'tool_calls')."
+    )
+    tool_calls: list[ToolCall] | None = Field(
+        default=None, description="Tool calls emitted with this chunk, if any."
+    )
 
 
 @discriminated_base
@@ -86,6 +99,36 @@ class BaseGenerator(Discriminated, ABC):
         completion_requests = [self._complete(m, params) for m in messages]
         responses = await asyncio.gather(*completion_requests)
         return responses
+
+    async def stream(
+        self,
+        messages: list[Message],
+        params: GenerationParams | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """Stream a completion as incremental chunks.
+
+        The default implementation falls back to ``complete()`` and yields
+        a single chunk containing the full response. Subclasses should
+        override this with real streaming when the provider supports it.
+
+        Parameters
+        ----------
+        messages : list[Message]
+            Messages to send to the model.
+        params : GenerationParams | None
+            Generation parameters.
+
+        Yields
+        ------
+        StreamChunk
+            Incremental chunks of the response.
+        """
+        response = await self.complete(messages, params)
+        yield StreamChunk(
+            delta=response.message.content or "",
+            finish_reason=response.finish_reason,
+            tool_calls=response.message.tool_calls,
+        )
 
     def chat(self, message: str, role: Role = "user") -> "ChatWorkflow[Any]":
         """Create a new chat pipeline with the given message.
