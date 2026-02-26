@@ -6,12 +6,11 @@ from pydantic import BaseModel, Field
 
 from ..core.check import Check
 from ..core.input_generator import InputGenerator
-from ..core.interaction import BaseInteractionSpec
+from ..core.interaction import BaseInteraction, Interaction
 from ..core.result import ScenarioResult
 from ..core.scenario import Scenario
-from ..core.trace import Interaction, Trace
+from ..core.trace import Trace
 from ..core.types import GeneratorType, ProviderType
-from ..interaction import InteractionSpec
 
 
 class ScenarioBuilder[InputType, OutputType, TraceType: Trace](BaseModel):  # pyright: ignore[reportMissingTypeArgument]
@@ -45,8 +44,8 @@ class ScenarioBuilder[InputType, OutputType, TraceType: Trace](BaseModel):  # py
 
     name: str = Field(..., description="Scenario name")
     sequence: list[
-        Interaction[InputType, OutputType]
-        | BaseInteractionSpec[InputType, OutputType, TraceType]
+        Interaction[InputType, OutputType, TraceType]
+        | BaseInteraction[InputType, OutputType, TraceType]
         | Check[InputType, OutputType, TraceType]
     ] = Field(default_factory=list, description="Sequential components to execute")
     trace_type: type[TraceType] | None = Field(
@@ -113,7 +112,7 @@ class ScenarioBuilder[InputType, OutputType, TraceType: Trace](BaseModel):  # py
         )
         ```
         """
-        interaction_spec = InteractionSpec(
+        interaction_spec = Interaction(
             inputs=inputs,
             outputs=outputs,
             metadata=metadata or {},
@@ -174,7 +173,9 @@ class ScenarioBuilder[InputType, OutputType, TraceType: Trace](BaseModel):  # py
         self.sequence.extend(checks)
         return self
 
-    def add_interaction(self, interaction: Interaction[InputType, OutputType]) -> Self:
+    def add_interaction(
+        self, interaction: Interaction[InputType, OutputType, TraceType]
+    ) -> Self:
         """Add a direct Interaction object to the scenario sequence.
 
         Adds a pre-constructed `Interaction` object directly to the sequence.
@@ -207,7 +208,7 @@ class ScenarioBuilder[InputType, OutputType, TraceType: Trace](BaseModel):  # py
         return self
 
     def add_interactions(
-        self, *interactions: Interaction[InputType, OutputType]
+        self, *interactions: Interaction[InputType, OutputType, TraceType]
     ) -> Self:
         """Add multiple Interaction objects to the scenario sequence.
 
@@ -242,17 +243,17 @@ class ScenarioBuilder[InputType, OutputType, TraceType: Trace](BaseModel):  # py
 
     def add_interaction_spec(
         self,
-        spec: BaseInteractionSpec[InputType, OutputType, TraceType],
+        spec: BaseInteraction[InputType, OutputType, TraceType],
     ) -> Self:
         """Add a custom InteractionSpec to the scenario sequence.
 
-        Adds a custom `BaseInteractionSpec` subclass instance to the sequence.
+        Adds a custom `BaseInteraction` subclass instance to the sequence.
         This is useful when using custom interaction generators or when you need
         more complex interaction generation logic.
 
         Parameters
         ----------
-        spec : BaseInteractionSpec
+        spec : BaseInteraction
             The interaction spec to add to the scenario.
 
         Returns
@@ -272,17 +273,17 @@ class ScenarioBuilder[InputType, OutputType, TraceType: Trace](BaseModel):  # py
         return self
 
     def add_interaction_specs(
-        self, *specs: BaseInteractionSpec[InputType, OutputType, TraceType]
+        self, *specs: BaseInteraction[InputType, OutputType, TraceType]
     ) -> Self:
         """Add multiple InteractionSpec objects to the scenario sequence.
 
-        Adds one or more custom `BaseInteractionSpec` subclass instances to the
+        Adds one or more custom `BaseInteraction` subclass instances to the
         sequence. This is useful when using custom interaction generators or when
         you need more complex interaction generation logic.
 
         Parameters
         ----------
-        *specs : BaseInteractionSpec
+        *specs : BaseInteraction
             One or more interaction specs to add to the scenario.
 
         Returns
@@ -308,20 +309,20 @@ class ScenarioBuilder[InputType, OutputType, TraceType: Trace](BaseModel):  # py
     def append(
         self,
         component: (
-            Interaction[InputType, OutputType]
-            | BaseInteractionSpec[InputType, OutputType, TraceType]
+            Interaction[InputType, OutputType, TraceType]
+            | BaseInteraction[InputType, OutputType, TraceType]
             | Check[InputType, OutputType, TraceType]
         ),
     ) -> Self:
         """Append any component to the scenario sequence.
 
         Generic method to append any valid scenario component (Interaction,
-        BaseInteractionSpec, or Check) to the sequence. This provides maximum
+        BaseInteraction, or Check) to the sequence. This provides maximum
         flexibility when constructing scenarios.
 
         Parameters
         ----------
-        component : Interaction | BaseInteractionSpec | Check
+        component : Interaction | BaseInteraction | Check
             The component to append to the scenario.
 
         Returns
@@ -344,20 +345,20 @@ class ScenarioBuilder[InputType, OutputType, TraceType: Trace](BaseModel):  # py
     def extend(
         self,
         *components: (
-            Interaction[InputType, OutputType]
-            | BaseInteractionSpec[InputType, OutputType, TraceType]
+            Interaction[InputType, OutputType, TraceType]
+            | BaseInteraction[InputType, OutputType, TraceType]
             | Check[InputType, OutputType, TraceType]
         ),
     ) -> Self:
         """Extend the scenario sequence with multiple components of any type.
 
         Generic method to extend the sequence with multiple valid scenario components
-        (Interaction, BaseInteractionSpec, or Check). This is useful when you
+        (Interaction, BaseInteraction, or Check). This is useful when you
         have a mixed list of components to add.
 
         Parameters
         ----------
-        *components : Interaction | BaseInteractionSpec | Check
+        *components : Interaction | BaseInteraction | Check
             One or more components of any type to extend the scenario with.
 
         Returns

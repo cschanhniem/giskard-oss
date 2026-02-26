@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any, Self
 
 from pydantic import BaseModel, Field, computed_field
@@ -5,44 +7,6 @@ from rich.console import Console, ConsoleOptions, RenderResult
 from rich.rule import Rule
 
 from .protocols import InteractionGenerator
-
-
-class Interaction[InputType, OutputType](BaseModel, frozen=True):
-    """A single interaction between inputs and outputs.
-
-    An interaction represents one exchange in a conversation or workflow,
-    capturing the inputs provided, the outputs produced, and optional metadata.
-
-    Attributes
-    ----------
-    inputs : InputType
-        The input values for this interaction (e.g., user message, API request).
-    outputs : OutputType
-        The output values produced in response (e.g., assistant reply, API response).
-    metadata : dict[str, Any]
-        Optional metadata associated with this interaction. Can include timing
-        information, tool calls, intermediate states, or any other relevant data.
-
-    Examples
-    --------
-    ```python
-    interaction = Interaction(
-        inputs="What is the capital of France?",
-        outputs="The capital of France is Paris.",
-        metadata={"model": "gpt-4", "tokens": 15}
-    )
-    ```
-    """
-
-    inputs: InputType
-    outputs: OutputType
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ) -> RenderResult:
-        yield "Inputs: " + repr(self.inputs)
-        yield "Outputs: " + repr(self.outputs)
 
 
 class Trace[InputType, OutputType](BaseModel, frozen=True):
@@ -85,11 +49,13 @@ class Trace[InputType, OutputType](BaseModel, frozen=True):
     ```
     """
 
-    interactions: list[Interaction[InputType, OutputType]] = Field(default_factory=list)
+    interactions: list[Interaction[InputType, OutputType, Any]] = Field(
+        default_factory=list
+    )
 
     @computed_field
     @property
-    def last(self) -> Interaction[InputType, OutputType] | None:
+    def last(self) -> Interaction[InputType, OutputType, Any] | None:
         """The last interaction in the trace, or None if the trace is empty.
 
         This computed field is equivalent to `interactions[-1]` when interactions exist.
@@ -114,15 +80,15 @@ class Trace[InputType, OutputType](BaseModel, frozen=True):
     @classmethod
     async def from_interactions(
         cls,
-        *interactions: Interaction[InputType, OutputType]
-        | InteractionGenerator[Interaction[InputType, OutputType], Self],
+        *interactions: Interaction[InputType, OutputType, Any]
+        | InteractionGenerator[Interaction[InputType, OutputType, Any], Self],
     ) -> Self:
         return await cls().with_interactions(*interactions)
 
     async def with_interactions(
         self,
-        *interactions: Interaction[InputType, OutputType]
-        | InteractionGenerator[Interaction[InputType, OutputType], Self],
+        *interactions: Interaction[InputType, OutputType, Any]
+        | InteractionGenerator[Interaction[InputType, OutputType, Any], Self],
     ) -> Self:
         trace = self
 
@@ -133,10 +99,10 @@ class Trace[InputType, OutputType](BaseModel, frozen=True):
 
     async def with_interaction(
         self,
-        interaction: Interaction[InputType, OutputType]
-        | InteractionGenerator[Interaction[InputType, OutputType], Self],
+        interaction: Interaction[InputType, OutputType, Any]
+        | InteractionGenerator[Interaction[InputType, OutputType, Any], Self],
     ) -> Self:
-        if isinstance(interaction, Interaction):
+        if getattr(interaction, "_resolved", False):
             return self.model_copy(
                 update={"interactions": self.interactions + [interaction]}
             )
@@ -162,3 +128,12 @@ class Trace[InputType, OutputType](BaseModel, frozen=True):
         for idx, interaction in enumerate(self.interactions):
             yield Rule(f"Interaction {idx + 1}", style="bold")
             yield from interaction.__rich_console__(console, options)
+
+
+# Interaction is imported after Trace is defined to break the circular import:
+# trace.py -> interaction.py -> input_generator.py -> trace.py
+# At this point Trace is fully defined, so input_generator.py can import it safely.
+from .interaction import Interaction  # noqa: E402
+
+# Resolve deferred Interaction annotation (from __future__ import annotations deferral)
+Trace.model_rebuild()

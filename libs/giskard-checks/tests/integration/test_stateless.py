@@ -1,14 +1,13 @@
 import uuid
 from collections.abc import AsyncGenerator, Awaitable
 from functools import partial
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import pytest
 from giskard import agents
 from giskard.checks import (
     Equals,
     Interaction,
-    InteractionSpec,
     LLMJudge,
     Scenario,
     Trace,
@@ -63,7 +62,7 @@ class MessageTraces(Trace[Any, Any], frozen=True):
     @property
     def messages(self) -> list[agents.Message]:
         return [
-            message
+            cast(agents.Message, message)
             for interaction in self.interactions
             for message in (interaction.inputs, interaction.outputs)
             if interaction.metadata.get("type") != "info"
@@ -98,7 +97,7 @@ async def test_single_message(
         trace_type=MessageTraces,
         sequence=[
             WithSpy(
-                interaction_generator=InteractionSpec(
+                interaction_generator=Interaction(
                     inputs=agents.Message(
                         role="user",
                         content="Hello, I want to apply for a job. My email is test@test.com and my message is 'Hello, I want to apply for a job.'",
@@ -186,7 +185,7 @@ async def test_user_simulator(
     result = await (
         scenario("test_single_message", trace_type=MessageTraces)
         .add_interaction_spec(
-            InteractionSpec(
+            Interaction(
                 inputs=partial(
                     user_simulator,
                     "You want to apply for an internship position, reply to the question to apply for the position.",
@@ -201,7 +200,7 @@ async def test_user_simulator(
             )
         )
         .add_interaction_spec(
-            InteractionSpec(
+            Interaction(
                 inputs=partial(
                     user_simulator,
                     "You want to be in contact with the CTO, be persistent and ask for a meeting. Do not stop until you have a meeting.",

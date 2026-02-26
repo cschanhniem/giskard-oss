@@ -5,9 +5,9 @@ from collections.abc import Sequence
 from pydantic import BaseModel, Field
 
 from .check import Check
-from .interaction import BaseInteractionSpec
+from .interaction import BaseInteraction, Interaction
 from .result import ScenarioResult
-from .trace import Interaction, Trace
+from .trace import Trace
 
 
 class Scenario[InputType, OutputType, TraceType: Trace](BaseModel, frozen=True):  # pyright: ignore[reportMissingTypeArgument]
@@ -29,7 +29,7 @@ class Scenario[InputType, OutputType, TraceType: Trace](BaseModel, frozen=True):
     ----------
     name : str
         Scenario identifier.
-    sequence : Sequence[Interaction | BaseInteractionSpec | Check]
+    sequence : Sequence[Interaction | BaseInteraction | Check]
         Sequential steps to execute. Each component can be an Interaction, an
         InteractionSpec (which updates the trace), or a Check (which validates
         the current trace).
@@ -69,8 +69,8 @@ class Scenario[InputType, OutputType, TraceType: Trace](BaseModel, frozen=True):
 
     name: str = Field(..., description="Scenario name")
     sequence: Sequence[
-        Interaction[InputType, OutputType]
-        | BaseInteractionSpec[InputType, OutputType, TraceType]
+        Interaction[InputType, OutputType, TraceType]
+        | BaseInteraction[InputType, OutputType, TraceType]
         | Check[InputType, OutputType, TraceType]
     ] = Field(..., description="Sequential components to execute")
     trace_type: type[TraceType] | None = Field(

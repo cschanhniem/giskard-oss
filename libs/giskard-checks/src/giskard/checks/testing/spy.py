@@ -2,21 +2,21 @@ from collections.abc import AsyncGenerator
 from typing import override
 from unittest.mock import MagicMock, patch
 
-from ..core.interaction import BaseInteractionSpec
-from ..core.trace import Interaction, Trace
+from ..core.interaction import BaseInteraction, Interaction
+from ..core.trace import Trace
 
 
-@BaseInteractionSpec.register("with_spy")
+@BaseInteraction.register("with_spy")
 class WithSpy[InputType, OutputType, TraceType: Trace](  # pyright: ignore[reportMissingTypeArgument]
-    BaseInteractionSpec[InputType, OutputType, TraceType]
+    BaseInteraction[InputType, OutputType, TraceType]
 ):
-    interaction_generator: BaseInteractionSpec[InputType, OutputType, TraceType]
+    interaction_generator: BaseInteraction[InputType, OutputType, TraceType]
     target: str
 
     @override
     async def generate(
         self, trace: TraceType
-    ) -> AsyncGenerator[Interaction[InputType, OutputType], TraceType]:
+    ) -> AsyncGenerator[Interaction[InputType, OutputType, TraceType], TraceType]:
         spy = MagicMock()
         with patch(self.target, spy):
             generator = self.interaction_generator.generate(trace)
@@ -33,8 +33,8 @@ class WithSpy[InputType, OutputType, TraceType: Trace](  # pyright: ignore[repor
                 await generator.aclose()
 
     def _patch_interaction(
-        self, interaction: Interaction[InputType, OutputType], spy: MagicMock
-    ) -> Interaction[InputType, OutputType]:
+        self, interaction: Interaction[InputType, OutputType, TraceType], spy: MagicMock
+    ) -> Interaction[InputType, OutputType, TraceType]:
         interaction = Interaction(
             inputs=interaction.inputs,
             outputs=interaction.outputs,

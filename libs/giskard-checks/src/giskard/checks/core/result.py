@@ -418,3 +418,7 @@ class TestCaseResult(BaseModel):
         subtitle = ", ".join(count_parts) + f" in {self.duration_ms}ms"
 
         yield Rule(subtitle, style=f"{status['color']} bold")
+
+
+# Resolve TestCaseResult forward reference in ScenarioResult
+ScenarioResult.model_rebuild()

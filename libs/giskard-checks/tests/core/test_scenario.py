@@ -8,7 +8,7 @@ from typing import override
 
 import pytest
 from giskard.checks import (
-    BaseInteractionSpec,
+    BaseInteraction,
     Check,
     CheckResult,
     Interaction,
@@ -34,17 +34,17 @@ class MockCheck(Check[str, str, Trace[str, str]]):
         return self.result
 
 
-@BaseInteractionSpec.register("mock_interaction_spec")
-class MockInteractionSpec(BaseInteractionSpec[str, str, Trace[str, str]]):
+@BaseInteraction.register("mock_interaction_spec")
+class MockInteractionSpec(BaseInteraction[str, str, Trace[str, str]]):
     """Mock interaction spec component for testing scenarios."""
 
-    interactions: list[Interaction[str, str]]
+    interactions: list[Interaction[str, str, Trace[str, str]]]
     trace_received: Trace[str, str] | None = None
 
     @override
     async def generate(
         self, trace: Trace[str, str]
-    ) -> AsyncGenerator[Interaction[str, str], Trace[str, str]]:
+    ) -> AsyncGenerator[Interaction[str, str, Trace[str, str]], Trace[str, str]]:
         """Generate interactions."""
         self.trace_received = trace
         for interaction in self.interactions:
@@ -78,14 +78,14 @@ class NamedFailingComponent(Check[str, str, Trace[str, str]]):
         raise ValueError(self.error_message)
 
 
-@BaseInteractionSpec.register("generator_error_component")
-class GeneratorErrorComponent(BaseInteractionSpec[str, str, Trace[str, str]]):
+@BaseInteraction.register("generator_error_component")
+class GeneratorErrorComponent(BaseInteraction[str, str, Trace[str, str]]):
     """Component whose generator raises an error after first yield."""
 
     @override
     async def generate(
         self, trace: Trace[str, str]
-    ) -> AsyncGenerator[Interaction[str, str], Trace[str, str]]:
+    ) -> AsyncGenerator[Interaction[str, str, Trace[str, str]], Trace[str, str]]:
         """Yield an interaction then raise an error on next iteration."""
         yield Interaction(inputs="test", outputs="result", metadata={})
         raise RuntimeError("Generator error")
@@ -572,7 +572,7 @@ class TestScenarioEdgeCases:
 
     async def test_scenario_with_multiple_consecutive_interactions(self):
         """Test scenario with multiple consecutive interaction specs."""
-        interaction_specs: list[BaseInteractionSpec[str, str, Trace[str, str]]] = [
+        interaction_specs: list[BaseInteraction[str, str, Trace[str, str]]] = [
             MockInteractionSpec(
                 interactions=[Interaction(inputs=str(i), outputs=str(i * 2))]
             )
@@ -896,7 +896,7 @@ class TestScenarioErrorHandling:
         assert result.final_trace.interactions[0].metadata == {"test": True}
 
     async def test_append_with_interaction_spec(self):
-        """Test that append() method works with BaseInteractionSpec objects."""
+        """Test that append() method works with BaseInteraction objects."""
         interaction = Interaction(inputs="Hello", outputs="Hi")
         interaction_spec = MockInteractionSpec(interactions=[interaction])
         check = MockCheck(result=CheckResult.success())

@@ -11,17 +11,18 @@ import time
 from typing import Any, cast
 
 from ..core.check import Check
+from ..core.interaction import Interaction
 from ..core.protocols import InteractionGenerator
 from ..core.result import CheckResult, ScenarioResult, TestCaseResult
 from ..core.scenario import Scenario
 from ..core.testcase import TestCase
-from ..core.trace import Interaction, Trace
+from ..core.trace import Trace
 
 
 class _ScenarioStep[InputType, OutputType, TraceType: Trace]:  # pyright: ignore[reportMissingTypeArgument]
     interactions: list[
-        Interaction[InputType, OutputType]
-        | InteractionGenerator[Interaction[InputType, OutputType], TraceType]
+        Interaction[InputType, OutputType, TraceType]
+        | InteractionGenerator[Interaction[InputType, OutputType, TraceType], TraceType]
     ]
     checks: list[Check[InputType, OutputType, TraceType]]
 
@@ -35,8 +36,8 @@ class _ScenarioStepsBuilder[InputType, OutputType, TraceType: Trace]:  # pyright
 
     def __init__(
         self,
-        *sequence: Interaction[InputType, OutputType]
-        | InteractionGenerator[Interaction[InputType, OutputType], TraceType]
+        *sequence: Interaction[InputType, OutputType, TraceType]
+        | InteractionGenerator[Interaction[InputType, OutputType, TraceType], TraceType]
         | Check[InputType, OutputType, TraceType],
     ):
         self.steps = []
@@ -58,8 +59,10 @@ class _ScenarioStepsBuilder[InputType, OutputType, TraceType: Trace]:  # pyright
 
     def add_interaction(
         self,
-        interaction: Interaction[InputType, OutputType]
-        | InteractionGenerator[Interaction[InputType, OutputType], TraceType],
+        interaction: Interaction[InputType, OutputType, TraceType]
+        | InteractionGenerator[
+            Interaction[InputType, OutputType, TraceType], TraceType
+        ],
     ):
         if len(self.current_step.checks) > 0:
             self.add_step()

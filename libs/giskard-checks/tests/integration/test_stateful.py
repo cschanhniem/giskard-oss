@@ -2,14 +2,13 @@ import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator, Awaitable
 from functools import partial
-from typing import Callable
+from typing import Callable, cast
 
 import pytest
 from giskard import agents
 from giskard.checks import (
     Equals,
     Interaction,
-    InteractionSpec,
     LLMJudge,
     Trace,
     WithSpy,
@@ -71,7 +70,7 @@ class ConversationTraces(Trace[agents.Message, agents.Message], frozen=True):
     @property
     def messages(self) -> list[agents.Message]:
         return [
-            message
+            cast(agents.Message, message)
             for interaction in self.interactions
             for message in (interaction.inputs, interaction.outputs)
         ]
@@ -87,13 +86,13 @@ def adapter(
     mock_agent: agents.ChatWorkflow[agents.Message],
 ) -> Callable[
     [agents.Message, ConversationTraces],
-    Awaitable[Interaction[agents.Message, agents.Message]],
+    Awaitable[Interaction[agents.Message, agents.Message, ConversationTraces]],
 ]:
     convs: dict[str, list[agents.Message]] = defaultdict(list)
 
     async def adapter(
         message: agents.Message, trace: ConversationTraces
-    ) -> Interaction[agents.Message, agents.Message]:
+    ) -> Interaction[agents.Message, agents.Message, ConversationTraces]:
         conversation_id = trace.conversation_id or str(uuid.uuid4())
 
         convs[conversation_id].append(message)
@@ -122,7 +121,7 @@ async def test_single_message(
         scenario("test_single_message", trace_type=ConversationTraces)
         .add_interaction_spec(
             WithSpy(
-                interaction_generator=InteractionSpec(
+                interaction_generator=Interaction(
                     inputs=agents.Message(
                         role="user",
                         content="Hello, I want to apply for a job. My email is test@test.com and my message is 'Hello, I want to apply for a job.'",
@@ -191,7 +190,7 @@ async def test_user_simulator(
     generator: agents.Generator,
     adapter: Callable[
         [agents.Message, ConversationTraces],
-        Awaitable[Interaction[agents.Message, agents.Message]],
+        Awaitable[Interaction[agents.Message, agents.Message, ConversationTraces]],
     ],
 ):
     async def user_simulator(
@@ -216,7 +215,7 @@ async def test_user_simulator(
     result = await (
         scenario("test_single_message", trace_type=ConversationTraces)
         .add_interaction_spec(
-            InteractionSpec(
+            Interaction(
                 inputs=partial(
                     user_simulator,
                     "You want to apply for an internship position, reply to the question to apply for the position.",
@@ -231,7 +230,7 @@ async def test_user_simulator(
             )
         )
         .add_interaction_spec(
-            InteractionSpec(
+            Interaction(
                 inputs=partial(
                     user_simulator,
                     "You want to be in contact with the CTO, be persistent and ask for a meeting. Do not stop until you have a meeting.",
