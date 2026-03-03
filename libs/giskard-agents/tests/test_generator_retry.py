@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -23,7 +24,10 @@ class MockGenerator(WithRetryPolicy, BaseGenerator):
         return isinstance(err, RetriableError)
 
     async def _attempt_complete(
-        self, messages: list[Message], params: GenerationParams | None = None
+        self,
+        messages: list[Message],
+        params: GenerationParams | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Response:
         return await self._complete_mock(messages, params)
 

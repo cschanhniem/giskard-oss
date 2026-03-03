@@ -1,4 +1,4 @@
-from typing import cast, override
+from typing import Any, cast, override
 
 from litellm import Choices, ModelResponse, acompletion
 from litellm import Message as LiteLLMMessage
@@ -31,7 +31,10 @@ class LiteLLMGenerator(WithRateLimiter, WithRetryPolicy, BaseGenerator):
 
     @override
     async def _attempt_complete(
-        self, messages: list[Message], params: GenerationParams | None = None
+        self,
+        messages: list[Message],
+        params: GenerationParams | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Response:
         params_ = self.params.model_dump(exclude={"tools"})
 

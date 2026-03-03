@@ -17,6 +17,7 @@ class Response(BaseModel):
     finish_reason: (
         Literal["stop", "length", "tool_calls", "content_filter", "null"] | None
     )
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class GenerationParams(BaseModel):
@@ -45,13 +46,17 @@ class BaseGenerator(Discriminated, ABC):
 
     @abstractmethod
     async def _complete(
-        self, messages: list[Message], params: GenerationParams | None = None
+        self,
+        messages: list[Message],
+        params: GenerationParams | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Response: ...
 
     async def complete(
         self,
         messages: list[Message],
         params: GenerationParams | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Response:
         """Get a completion from the model.
 
@@ -67,7 +72,7 @@ class BaseGenerator(Discriminated, ABC):
         Message
             The model's response message.
         """
-        return await self._complete(messages, params)
+        return await self._complete(messages, params, metadata)
 
     async def batch_complete(
         self, messages: list[list[Message]], params: GenerationParams | None = None

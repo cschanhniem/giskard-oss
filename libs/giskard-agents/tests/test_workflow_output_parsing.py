@@ -26,6 +26,7 @@ class MockValidationGenerator(BaseGenerator):
         self,
         messages: list[Message],
         params: GenerationParams | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Response:
         if self._call_count >= len(self.responses):
             # If we run out of responses, return the last one

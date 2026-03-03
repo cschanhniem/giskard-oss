@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from giskard import agents
 from giskard.agents.errors import WorkflowError
@@ -13,6 +15,7 @@ class FailingGenerator(agents.generators.BaseGenerator):
         self,
         messages: list[agents.chat.Message],
         params: agents.generators.GenerationParams | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> agents.generators.Response:
         if self._num_calls >= self.fail_after:
             raise ValueError("Test error")

@@ -1,4 +1,4 @@
-from typing import Self
+from typing import Any, Self
 
 import tenacity as t
 from pydantic import BaseModel, Field
@@ -40,7 +40,10 @@ class WithRetryPolicy(BaseModel):
         )
 
     async def _attempt_complete(
-        self, messages: list[Message], params: GenerationParams | None = None
+        self,
+        messages: list[Message],
+        params: GenerationParams | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Response:
         """Complete a single request without retry logic.
 
@@ -102,7 +105,10 @@ class WithRetryPolicy(BaseModel):
         return self.model_copy(update={"retry_policy": policy})
 
     async def _complete(
-        self, messages: list[Message], params: GenerationParams | None = None
+        self,
+        messages: list[Message],
+        params: GenerationParams | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Response:
         """Complete with retry logic applied.
 
@@ -122,7 +128,7 @@ class WithRetryPolicy(BaseModel):
             The model's response.
         """
         if self.retry_policy is None:
-            return await self._attempt_complete(messages, params)
+            return await self._attempt_complete(messages, params, metadata)
 
         wait_kwargs: dict[str, float] = {"multiplier": self.retry_policy.base_delay}
         if self.retry_policy.max_delay is not None:
@@ -136,7 +142,7 @@ class WithRetryPolicy(BaseModel):
             reraise=True,
         )
 
-        return await retrier(self._attempt_complete, messages, params)
+        return await retrier(self._attempt_complete, messages, params, metadata)
 
     def _tenacity_retry_condition(self, retry_state: t.RetryCallState) -> bool:
         """Determine if a retry should be attempted based on the outcome.
