@@ -148,7 +148,7 @@ jobs:
           files: |
             libs/${{ env.PACKAGE }}/dist/*.tar.gz
             libs/${{ env.PACKAGE }}/dist/*.whl
-            
+
       - name: Push to PyPI
         if: ${{ github.event.inputs.dry_run == false }}
         working-directory: libs/${{ env.PACKAGE }}
