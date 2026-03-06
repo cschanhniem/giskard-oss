@@ -1,10 +1,22 @@
 import functools
 import inspect
 from collections.abc import Callable
-from typing import Any, cast
+from types import UnionType
+from typing import Any, cast, get_args, get_origin
 
 from pydantic import BaseModel
 from typing_extensions import TypeVar
+
+R = TypeVar("R")
+
+
+def _candidate_types_for_matching(annotation: Any) -> list[Any]:
+    """Return types to check for requirement matching."""
+    if isinstance(annotation, UnionType):
+        return [a for a in get_args(annotation) if a is not type(None)]
+    if annotation is inspect.Parameter.empty or annotation is Any:
+        return []
+    return [annotation]
 
 
 class ParameterInjectionRequirement(BaseModel, frozen=True):
@@ -30,8 +42,8 @@ class CallableInjectionMapping(BaseModel, frozen=True):
     args: list[ParameterInjection[Any]]
     kwargs: dict[str, ParameterInjection[Any]]
 
-    def inject_parameters[**P, R](
-        self, value: Callable[..., R], *args: P.args, **kwargs: P.kwargs
+    def inject_parameters(
+        self, value: Callable[..., R], *args: Any, **kwargs: Any
     ) -> Callable[[], R]:
         return functools.partial(
             value,
@@ -73,10 +85,7 @@ class CallableInjectionMapping(BaseModel, frozen=True):
             if isinstance(param_annotation, TypeVar):
                 param_annotation = param_annotation.__bound__ or Any
 
-            param_default = parameter.default
-
-            if param_default is not inspect.Parameter.empty:
-                continue
+            candidate_types = _candidate_types_for_matching(param_annotation)
 
             if parameter.kind in (
                 inspect.Parameter.VAR_POSITIONAL,
@@ -88,6 +97,8 @@ class CallableInjectionMapping(BaseModel, frozen=True):
 
             # First pass: try to find exact matches or type-based matches
             for req_class_info, req in reqs_by_type.items():
+                if req_class_info in satisfied_reqs:
+                    continue
                 if (
                     param_annotation is inspect.Parameter.empty
                     or param_annotation is Any
@@ -99,30 +110,53 @@ class CallableInjectionMapping(BaseModel, frozen=True):
                 elif req_class_info is Any:
                     matching_req = req
                     break
-                elif param_annotation is req_class_info:
-                    matching_req = req
-                    break
-                elif (
-                    isinstance(param_annotation, type)
-                    and isinstance(req_class_info, type)
-                    and issubclass(cast(type, param_annotation), req_class_info)
-                ):
-                    matching_req = req
-                    break
+                else:
+                    # Check if any candidate type matches (e.g. for int | Trace, Trace matches)
+                    for candidate in candidate_types:
+                        if candidate is req_class_info or (
+                            isinstance(candidate, type)
+                            and isinstance(req_class_info, type)
+                            and issubclass(cast(type, candidate), req_class_info)
+                        ):
+                            matching_req = req
+                            break
+                    if matching_req is not None:
+                        break
 
-            # Second pass: if no match found and parameter is untyped, allow it to match any requirement
-            if matching_req is None and (
-                param_annotation is inspect.Parameter.empty or param_annotation is Any
+            # Second pass: if no match found and parameter is untyped (and required),
+            # allow it to match any requirement. Skip params with defaults - they use their default.
+            if (
+                matching_req is None
+                and (
+                    param_annotation is inspect.Parameter.empty
+                    or param_annotation is Any
+                )
+                and parameter.default is inspect.Parameter.empty
             ):
-                # Match the first available requirement for untyped parameters
                 for req_class_info, req in reqs_by_type.items():
-                    matching_req = req
-                    break
+                    if req_class_info not in satisfied_reqs:
+                        matching_req = req
+                        break
 
             if matching_req is None:
+                # If no match found and parameter has a default value, use the default value
+                if parameter.default is not inspect.Parameter.empty:
+                    continue
+
                 raise TypeError(
                     f"Parameter '{param_name}' of type '{param_annotation}' is required but no matching `ParameterInjectionRequirement` was provided."
                 )
+
+            # Use a concrete type for class_info: UnionType, GenericAlias (e.g. dict[str, Any]),
+            # and empty are not valid for Pydantic's type validator, so use matching_req.class_info.
+            if (
+                isinstance(param_annotation, UnionType)
+                or param_annotation is inspect.Parameter.empty
+                or get_origin(param_annotation) is not None
+            ):
+                stored_class_info = matching_req.class_info
+            else:
+                stored_class_info = param_annotation
 
             injection = ParameterInjection(
                 position=(
@@ -135,11 +169,7 @@ class CallableInjectionMapping(BaseModel, frozen=True):
                     else None
                 ),
                 name=param_name,
-                class_info=(
-                    param_annotation
-                    if param_annotation is not inspect.Parameter.empty
-                    else matching_req.class_info
-                ),
+                class_info=stored_class_info,
             )
 
             if injection.position is not None:
