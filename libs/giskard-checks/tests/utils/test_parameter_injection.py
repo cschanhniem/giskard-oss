@@ -1,5 +1,6 @@
 """Tests for parameter injection utilities."""
 
+import typing
 from typing import Any
 
 import pytest
@@ -189,3 +190,75 @@ class TestParameterInjectionExistingBehavior:
         mapping = CallableInjectionMapping.from_callable(fn)
         injected = mapping.inject_parameters(fn)
         assert injected() == "ok"
+
+
+class TestParameterInjectionRequirementMatching:
+    """Tests for requirement matching and validation."""
+
+    def test_trace_param_matches_trace_not_any_when_both_requirements_present(
+        self,
+    ) -> None:
+        """Trace-typed param receives Trace, not Any, when both requirements exist."""
+
+        # Order: INJECTABLE_INPUT first, INJECTABLE_TRACE second (as in Interact)
+        def fn(
+            inputs: dict[str, Any], trace: Trace[Any, Any] | None = None
+        ) -> tuple[dict[str, Any], Trace[Any, Any]]:
+            assert trace is not None
+            return inputs, trace
+
+        mapping = CallableInjectionMapping.from_callable(
+            fn, INJECTABLE_INPUT, INJECTABLE_TRACE
+        )
+
+        inputs_val = {"x": 1}
+        trace_val = Trace(interactions=[])
+        injected = mapping.inject_parameters(fn, inputs_val, trace_val)
+        result_inputs, result_trace = injected()
+
+        assert result_inputs == inputs_val
+        assert result_trace is trace_val
+
+    def test_untyped_params_match_by_name_when_kwargs_reqs_used(self) -> None:
+        """Untyped required params match by parameter name when kwargs_reqs provided."""
+
+        def fn(trace, inputs) -> tuple[Any, Any]:
+            return trace, inputs
+
+        mapping = CallableInjectionMapping.from_callable(
+            fn, trace=INJECTABLE_TRACE, inputs=INJECTABLE_INPUT
+        )
+
+        trace_val = Trace(interactions=[])
+        inputs_val = {"key": "value"}
+        # Args order matches param order: trace first, inputs second
+        injected = mapping.inject_parameters(fn, trace_val, inputs_val)
+        result_trace, result_inputs = injected()
+
+        assert result_trace is trace_val
+        assert result_inputs == inputs_val
+
+    def test_typing_legacy_union_style_matches_requirement(self) -> None:
+        """typing.Union (Union[X, Y]) is supported for requirement matching."""
+
+        def fn(x: typing.Union[Trace[Any, Any], str]) -> Trace[Any, Any] | str:  # pyright: ignore[reportDeprecated]
+            return x
+
+        mapping = CallableInjectionMapping.from_callable(fn, INJECTABLE_TRACE)
+
+        trace_val = Trace(interactions=[])
+        injected = mapping.inject_parameters(fn, trace_val)
+        assert injected() is trace_val
+
+    def test_required_injection_unused_raises(self) -> None:
+        """Required (non-optional) injection with no matching param raises TypeError."""
+        required_trace = ParameterInjectionRequirement(class_info=Trace, optional=False)
+
+        def fn(inputs: str) -> str:
+            return inputs
+
+        with pytest.raises(
+            TypeError,
+            match="Required injection for type.*Trace.*was not used by any parameter",
+        ):
+            CallableInjectionMapping.from_callable(fn, INJECTABLE_INPUT, required_trace)

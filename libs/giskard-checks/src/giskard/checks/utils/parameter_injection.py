@@ -1,5 +1,6 @@
 import functools
 import inspect
+import typing
 from collections.abc import Callable
 from types import UnionType
 from typing import Any, cast, get_args, get_origin
@@ -13,8 +14,9 @@ R = TypeVar("R")
 
 def _candidate_types_for_matching(annotation: Any) -> list[Any]:
     """Return types to check for requirement matching."""
-    if isinstance(annotation, UnionType):
-        return [a for a in get_args(annotation) if a is not type(None)]
+    origin = get_origin(annotation)
+    if origin is typing.Union or origin is UnionType:  # pyright: ignore[reportDeprecated] we ignore the deprecated warning because we need to support both Union and UnionType in signatures
+        return [arg for arg in get_args(annotation) if arg is not type(None)]
     if annotation is inspect.Parameter.empty or annotation is Any:
         return []
     return [annotation]
@@ -44,8 +46,16 @@ def _find_matching_requirement(
     reqs_by_type: dict[type[Any] | Any, "ParameterInjectionRequirement"],
     satisfied_reqs: set[type[Any] | Any],
 ) -> "ParameterInjectionRequirement | None":
-    """Find a requirement that matches the parameter's annotation."""
-    for req_class_info, req in reqs_by_type.items():
+    """Find a requirement that matches the parameter's annotation.
+
+    Iterates non-Any requirements first so that e.g. Trace | None matches
+    the Trace requirement rather than the Any requirement (avoids mis-injection).
+    """
+    req_items = sorted(
+        reqs_by_type.items(),
+        key=lambda x: (x[0] is Any, str(x[0])),
+    )
+    for req_class_info, req in req_items:
         if req_class_info in satisfied_reqs:
             continue
         if param_annotation is inspect.Parameter.empty or param_annotation is Any:
@@ -57,10 +67,17 @@ def _find_matching_requirement(
 
 
 def _find_requirement_for_untyped_required(
+    param_name: str,
     reqs_by_type: dict[type[Any] | Any, "ParameterInjectionRequirement"],
     satisfied_reqs: set[type[Any] | Any],
+    kwargs_reqs: dict[str, "ParameterInjectionRequirement"],
 ) -> "ParameterInjectionRequirement | None":
-    """Fallback: untyped required params can match any unsatisfied requirement."""
+    """Fallback: untyped required params match by name first, else first unsatisfied."""
+    # Prefer name-based match when caller passed named requirements (avoids param swap)
+    if param_name in kwargs_reqs:
+        req = kwargs_reqs[param_name]
+        if req.class_info not in satisfied_reqs:
+            return req
     for req_class_info, req in reqs_by_type.items():
         if req_class_info not in satisfied_reqs:
             return req
@@ -155,7 +172,7 @@ class CallableInjectionMapping(BaseModel, frozen=True):
                 and parameter.default is inspect.Parameter.empty
             ):
                 matching_req = _find_requirement_for_untyped_required(
-                    reqs_by_type, satisfied_reqs
+                    parameter.name, reqs_by_type, satisfied_reqs, kwargs_reqs
                 )
 
             if matching_req is None:
@@ -182,5 +199,11 @@ class CallableInjectionMapping(BaseModel, frozen=True):
             else:
                 resolved_kwargs[parameter.name] = injection
             satisfied_reqs.add(matching_req.class_info)
+
+        for req_class_info, req in reqs_by_type.items():
+            if not req.optional and req_class_info not in satisfied_reqs:
+                raise TypeError(
+                    f"Required injection for type {req_class_info!r} was not used by any parameter."
+                )
 
         return cls(args=resolved_args, kwargs=resolved_kwargs)
