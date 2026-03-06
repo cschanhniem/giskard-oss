@@ -526,6 +526,23 @@ class TestInteraction:
         record = await anext(generator)
         assert record.outputs == "echo_0: hello"
 
+    async def test_outputs_fn_with_optional_trace_param(self):
+        """Test outputs as function with trace typed as optional (Trace | None = None).
+
+        Regression test for https://github.com/Giskard-AI/giskard-oss/issues/2291
+        """
+
+        def get_output(inputs: str, trace: Trace[str, str] | None = None) -> str:
+            assert trace is not None
+            count = len(trace.interactions)
+            return f"echo_{count}: {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.outputs == "echo_0: hello"
+
     async def test_outputs_fn_with_provided_param_default(self):
         """Test outputs as function with inputs, trace, and provided parameter with default."""
 
@@ -588,27 +605,21 @@ class TestInteraction:
         with pytest.raises(TypeError, match="Parameter 'unmapped'.*no matching"):
             Interact(inputs=get_input, outputs="hi")
 
-    async def test_outputs_fn_with_unmapped_required_param_passes_validation_but_fails_runtime(
-        self,
-    ):
-        """Test that outputs function with unmapped required parameter passes validation but fails at runtime.
+    async def test_outputs_fn_with_unmapped_required_param_raises_error(self):
+        """Test that outputs function with unmapped required parameter raises validation error.
 
-        Note: Since INJECTABLE_INPUT has class_info=Any, it matches any parameter type,
-        so validation passes. However, at runtime it fails because the unmapped parameter
-        cannot be resolved from the provided arguments.
+        Each requirement (inputs, trace) is matched at most once. An extra required
+        param like unmapped has no matching requirement, so validation fails.
         """
 
         def get_output(inputs: str, trace: Trace[str, str], unmapped: str) -> str:
-            # unmapped will match INJECTABLE_INPUT (Any) during validation
             return f"echo_{unmapped}: {inputs}"
 
-        # Validation passes because INJECTABLE_INPUT (Any) matches unmapped: str
-        interaction = Interact(inputs="hello", outputs=get_output)
-        generator = interaction.generate(Trace(interactions=[]))
-        # Fails at runtime with IndexError because unmapped parameter (position 2)
-        # cannot be resolved from args (only inputs and trace are provided)
-        with pytest.raises(IndexError):
-            await anext(generator)
+        with pytest.raises(
+            (TypeError, ValueError),
+            match="Parameter 'unmapped'.*no matching|Error getting injection",
+        ):
+            Interact(inputs="hello", outputs=get_output)
 
     async def test_inputs_fn_with_var_positional_works(self):
         """Test that inputs function with *args works (var args are skipped)."""
