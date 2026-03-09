@@ -335,7 +335,7 @@ Structured data example
 ------------------------
 
 ```python
-from giskard.checks import scenario, Equals, StringMatching
+from giskard.checks import Equals, Scenario, StringMatching
 
 result = await (
     Scenario("structured-example")
@@ -366,7 +366,7 @@ Multi-step workflows
 Use the fluent API to create multi-turn scenarios. Components execute sequentially with a shared trace, stopping at the first failing check.
 
 ```python
-from giskard.checks import scenario, LLMJudge, RegexMatching
+from giskard.checks import LLMJudge, RegexMatching, Scenario
 
 result = await (
     Scenario("multi_step_conversation")
@@ -397,7 +397,7 @@ Dynamic interaction generation
 The fluent API supports callables (sync/async) or generators for dynamic inputs. Multiple inputs can be produced by yielding from a generator.
 
 ```python
-from giskard.checks import scenario, Trace, from_fn
+from giskard.checks import Scenario, Trace, from_fn
 
 
 async def input_generator(trace: Trace):
@@ -426,9 +426,9 @@ LLM-based checks
 from giskard.agents.generators import Generator
 
 from giskard.checks import (
-    scenario,
     Conformity,
     LLMJudge,
+    Scenario,
     set_default_generator,
 )
 
