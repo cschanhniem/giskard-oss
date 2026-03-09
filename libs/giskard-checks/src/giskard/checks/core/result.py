@@ -191,7 +191,7 @@ class CheckResult(BaseModel):
 
         yield f"[{status['color']} bold]{name}[/{status['color']} bold]\t[{status['color']}]{self.status.value.upper()}[/{status['color']}]"
 
-        if self.status == CheckStatus.FAIL or self.status == CheckStatus.ERROR:
+        if self.failed or self.errored:
             yield self.message or "No specific error message provided"
 
 
@@ -273,6 +273,11 @@ class ScenarioResult[InputType, OutputType](BaseModel):
         """True when all steps were skipped."""
         return self.status == ScenarioStatus.SKIP
 
+    @property
+    def unsuccessful_step(self) -> TestCaseResult | None:
+        """The step that caused the scenario to be unsuccessful, either failed or errored. If no step failed or errored, returns None."""
+        return next((step for step in self.steps if step.failed or step.errored), None)
+
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
@@ -325,6 +330,8 @@ class TestCaseResult(BaseModel):
         True when at least one check errored.
     skipped : bool
         True when all checks were skipped.
+    unsuccessful : list[CheckResult]
+        Check results that failed or errored, in execution order.
     """
 
     results: list[CheckResult] = Field(..., description="Check results for each run")
@@ -367,6 +374,11 @@ class TestCaseResult(BaseModel):
         """True when all checks were skipped in the final run."""
         return self.status == TestCaseStatus.SKIP
 
+    @property
+    def unsuccessful(self) -> list[CheckResult]:
+        """List of unsuccessful check results (failed or errored) in execution order."""
+        return [r for r in self.results if r.failed or r.errored]
+
     def format_failures(self) -> list[str]:
         """Format failed check results into a list of readable error messages.
 
@@ -377,14 +389,13 @@ class TestCaseResult(BaseModel):
             the check name/kind and the failure reason.
         """
         failure_messages: list[str] = []
-        for result in self.results:
-            if result.failed or result.errored:
-                check_name: str = result.details.get(
-                    "check_name"
-                ) or result.details.get("check_kind", "Unknown check")
-                status = "ERRORED" if result.errored else "FAILED"
-                message = result.message or "No specific error message provided"
-                failure_messages.append(f"{check_name} {status}: {message}")
+        for result in self.unsuccessful:
+            check_name: str = result.details.get("check_name") or result.details.get(
+                "check_kind", "Unknown check"
+            )
+            status = "ERRORED" if result.errored else "FAILED"
+            message = result.message or "No specific error message provided"
+            failure_messages.append(f"{check_name} {status}: {message}")
         return failure_messages
 
     def assert_passed(self) -> None:
@@ -473,29 +484,54 @@ class SuiteResult(BaseModel):
     )
     duration_ms: int = Field(..., description="Total execution time in milliseconds")
 
+    @property
+    def passed(self) -> list[ScenarioResult[Any, Any]]:
+        """List of passed scenarios."""
+        return [r for r in self.results if r.passed]
+
+    @property
+    def failed(self) -> list[ScenarioResult[Any, Any]]:
+        """List of failed scenarios."""
+        return [r for r in self.results if r.failed]
+
+    @property
+    def errored(self) -> list[ScenarioResult[Any, Any]]:
+        """List of errored scenarios."""
+        return [r for r in self.results if r.errored]
+
+    @property
+    def skipped(self) -> list[ScenarioResult[Any, Any]]:
+        """List of skipped scenarios."""
+        return [r for r in self.results if r.skipped]
+
+    @property
+    def unsuccessful(self) -> list[ScenarioResult[Any, Any]]:
+        """List of unsuccessful scenarios, either failed or errored."""
+        return [r for r in self.results if r.failed or r.errored]
+
     @computed_field
     @property
     def passed_count(self) -> int:
         """Number of passed scenarios."""
-        return sum(1 for r in self.results if r.passed)
+        return len(self.passed)
 
     @computed_field
     @property
     def failed_count(self) -> int:
         """Number of failed scenarios."""
-        return sum(1 for r in self.results if r.failed)
+        return len(self.failed)
 
     @computed_field
     @property
     def errored_count(self) -> int:
         """Number of errored scenarios."""
-        return sum(1 for r in self.results if r.errored)
+        return len(self.errored)
 
     @computed_field
     @property
     def skipped_count(self) -> int:
         """Number of skipped scenarios."""
-        return sum(1 for r in self.results if r.skipped)
+        return len(self.skipped)
 
     @computed_field
     @property
@@ -528,7 +564,7 @@ class SuiteResult(BaseModel):
         yield dots
 
         # Failure/Error summary
-        failures_and_errors = [r for r in self.results if r.failed or r.errored]
+        failures_and_errors = self.unsuccessful
         if failures_and_errors:
             n_loggable_failures = 20
             yield ""

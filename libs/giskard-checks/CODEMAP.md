@@ -63,10 +63,12 @@ modules, core abstractions, and expected workflows.
 
 ### Results (`core/result.py`)
 - `CheckStatus`, `CheckResult`, `Metric`: immutable check outcomes with helpers.
-- `ScenarioResult`: aggregated results + final trace for a single scenario execution.
-- `SuiteResult`: aggregated results from multiple scenarios (total count, pass/fail counts, pass rate, duration).
-- `TestCaseResult`: multi-run summary with helper predicates (`passed`, `failed`, etc.)
-  and `format_failures()` / `assert_passed()` helpers.
+- `ScenarioResult`: aggregated results + final trace for a single scenario execution;
+  `unsuccessful_step` is the first step that failed or errored.
+- `SuiteResult`: aggregated results from multiple scenarios (total count, pass/fail counts, pass rate, duration);
+  `unsuccessful` preserves execution order when mixing failed and errored scenarios.
+- `TestCaseResult`: multi-run summary with helper predicates (`passed`, `failed`, etc.),
+  `unsuccessful` (failed/errored check results in order), and `format_failures()` / `assert_passed()` helpers.
 
 ### Extraction (`core/extraction.py`)
 - `Extractor` base class plus `JsonPathExtractor`.
@@ -124,6 +126,7 @@ modules, core abstractions, and expected workflows.
    - `result = await suite.run(target=my_sut)`: execute the suite with a different target.
 5. **Inspect results** via `ScenarioResult` or `SuiteResult`:
    - `result.passed`, `result.failed`, `result.errored` convenience booleans (for `SuiteResult`, the attributes are `passed_count`, `failed_count`, `errored_count`).
+   - `result.unsuccessful`: failed or errored items in execution order (`SuiteResult`, `TestCaseResult`); `unsuccessful_step` on `ScenarioResult`.
    - `result.check_results`: list of all check results.
    - `result.final_trace`: final trace state after execution.
    - `result.duration_ms`: execution time (also available on `ScenarioResult`).

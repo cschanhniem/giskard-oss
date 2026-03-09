@@ -211,7 +211,7 @@ from giskard.checks import Check, CheckResult, Interaction, TestCase, Trace
 @Check.register("my_custom_check")
 class MyCustomCheck(Check):
     async def run(self, trace: Trace) -> CheckResult:
-        return CheckResult.success("Check passed")
+        return CheckResult.success(message="Check passed")
 
 
 trace = Trace(interactions=[Interaction(inputs="test", outputs="result")])
@@ -244,9 +244,9 @@ class AdvancedSecurityCheck(Check):
         current = trace.last
         score = await some_security_analysis(current.outputs)
         if score >= self.threshold:
-            return CheckResult.success(f"Security score {score:.2f} meets threshold")
+            return CheckResult.success(message=f"Security score {score:.2f} meets threshold")
         return CheckResult.failure(
-            f"Security score {score:.2f} below threshold {self.threshold}"
+            message=f"Security score {score:.2f} below threshold {self.threshold}"
         )
 ```
 
