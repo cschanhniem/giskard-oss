@@ -119,7 +119,7 @@ modules, core abstractions, and expected workflows.
    - `await scenario.run(target=my_sut)`: execute the scenario with a different target.
 4. **Manage batches with Suite**:
    - `suite = Suite(name="my_suite", target=shared_sut)`: create a suite with a shared target.
-   - `suite.append(s1)`: add a scenario to the suite.
+   - `suite.append(scenario1)`: add a scenario to the suite.
    - `result = await suite.run()`: execute the suite.
    - `result = await suite.run(target=my_sut)`: execute the suite with a different target.
 5. **Inspect results** via `ScenarioResult` or `SuiteResult`:
@@ -172,7 +172,7 @@ from giskard.checks import (
     WithSpy, TestCaseRunner,
 
     # Scenarios and Suite
-    ScenarioBuilder, scenario, Suite, ScenarioRunner,
+    Scenario, Suite, ScenarioRunner,
 
     # Settings
     set_default_generator, get_default_generator,
