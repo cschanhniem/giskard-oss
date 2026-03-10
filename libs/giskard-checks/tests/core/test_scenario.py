@@ -15,6 +15,7 @@ from giskard.checks import (
     Interaction,
     InteractionSpec,
     Scenario,
+    Step,
     Trace,
     from_fn,
 )
@@ -508,7 +509,7 @@ class TestScenarioEdgeCases:
         scenario = Scenario(
             name="annotations_scenario",
             annotations={"my_key": "my_value"},
-            sequence=[],
+            steps=[],
         )
 
         result = await scenario.run()
@@ -1013,6 +1014,74 @@ class TestScenarioErrorHandling:
         assert len(result.final_trace.interactions) == 1
         assert result.final_trace.interactions[0].inputs == "Message #1"
         assert result.final_trace.interactions[0].outputs == "Received: Message #1"
+
+
+class TestScenarioFromSequenceAndSerialization:
+    """Test Scenario.from_sequence() and step-based serialization."""
+
+    async def test_from_sequence_equivalent_to_fluent_api(self):
+        """Scenario.from_sequence() produces same result as fluent API."""
+        fluent = (
+            Scenario("fluent")
+            .interact("Hello", "Hi")
+            .check(Equals(expected_value="Hi", key="trace.last.outputs"))
+            .interact("World", "Echo: World")
+            .check(Equals(expected_value="Echo: World", key="trace.last.outputs"))
+        )
+        from_seq = Scenario.from_sequence(
+            Interact(inputs="Hello", outputs="Hi"),
+            Equals(expected_value="Hi", key="trace.last.outputs"),
+            Interact(inputs="World", outputs="Echo: World"),
+            Equals(expected_value="Echo: World", key="trace.last.outputs"),
+            name="fluent",
+        )
+
+        result_fluent = await fluent.run()
+        result_from_seq = await from_seq.run()
+
+        assert result_fluent.passed == result_from_seq.passed
+        assert len(result_fluent.steps) == len(result_from_seq.steps)
+        assert len(result_fluent.final_trace.interactions) == len(
+            result_from_seq.final_trace.interactions
+        )
+
+    async def test_from_sequence_with_only_checks(self):
+        """from_sequence handles scenario starting with checks only."""
+        check = MockCheck(result=CheckResult.success(message="OK"))
+        scenario = Scenario.from_sequence(check, name="checks_only")
+        result = await scenario.run()
+        assert result.passed
+        assert len(result.steps) == 1
+        assert len(result.steps[0].results) == 1
+
+    async def test_scenario_model_dump_validate_roundtrip(self):
+        """Scenario with steps can be serialized and deserialized."""
+        scenario = (
+            Scenario("serialize_test")
+            .interact("Hello", "Hi")
+            .check(Equals(expected_value="Hi", key="trace.last.outputs"))
+        )
+        serialized = scenario.model_dump()
+        restored = Scenario.model_validate(serialized)
+        result = await restored.run()
+        assert result.passed
+        assert result.scenario_name == "serialize_test"
+
+    async def test_scenario_with_steps_constructor(self):
+        """Scenario can be built with explicit Step objects."""
+        scenario = Scenario(
+            name="steps_constructor",
+            steps=[
+                Step(
+                    interacts=[Interact(inputs="Hello", outputs="Hi")],
+                    checks=[Equals(expected_value="Hi", key="trace.last.outputs")],
+                ),
+            ],
+        )
+        result = await scenario.run()
+        assert result.passed
+        assert len(result.final_trace.interactions) == 1
+        assert result.final_trace.interactions[0].outputs == "Hi"
 
 
 @pytest.fixture
