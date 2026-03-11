@@ -54,8 +54,13 @@ async def _sut(inputs):
 @pytest.mark.functional
 @parametrize(Path(__file__).parent / "dataset" / "conformity.jsonl")
 async def test_conformity(scenario: Scenario[object, object, Trace[object, object]]):
+    # Remove this condition to see what happens when a scenario fails.
+    # Note this require to run the test with the -v flag.
+    if scenario.annotations.get("expect_failure", False):
+        return pytest.skip("Skipping scenario that is expected to fail.")
+
     with with_generator(
         agents.Generator(model=os.getenv("TEST_MODEL", "gemini/gemini-2.0-flash"))
     ):
         result = await scenario.run(target=_sut)
-        assert result.passed, result  # TODO: improve the error message
+        result.assert_passed()

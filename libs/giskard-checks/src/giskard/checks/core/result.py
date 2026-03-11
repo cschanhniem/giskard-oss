@@ -202,6 +202,21 @@ class ScenarioStatus(str, Enum):
     SKIP = "skip"
 
 
+class ScenarioAssertionError(AssertionError):
+    """Raised when a scenario fails, containing the rich result."""
+
+    def __init__(self, result: "ScenarioResult[Any, Any]"):
+        self.result = result
+        # Fallback for non-rich reporters
+        super().__init__(f"Scenario '{result.scenario_name}' failed.")
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        # Delegate rendering to the existing logic in ScenarioResult
+        yield from self.result.__rich_console__(console, options)
+
+
 class ScenarioResult[InputType, OutputType](BaseModel):
     """Result of executing an entire scenario.
 
@@ -293,6 +308,11 @@ class ScenarioResult[InputType, OutputType](BaseModel):
             f"{_pluralize(len(self.steps), 'step')} in {self.duration_ms}ms",
             style=f"{status['color']} bold",
         )
+
+    def assert_passed(self) -> None:
+        """Assert that the scenario passed, raising an AssertionError with formatted failure messages if not."""
+        if not self.passed:
+            raise ScenarioAssertionError(self)
 
 
 class TestCaseStatus(str, Enum):
