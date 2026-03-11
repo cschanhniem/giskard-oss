@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from giskard import agents
-from giskard.checks import Scenario, Trace, set_default_generator
+from giskard.checks import Conformity, Scenario, Trace, set_default_generator
 from giskard.checks import settings as checks_settings
 
 
@@ -47,8 +47,9 @@ def parametrize(path: Path, param_name: str = "scenario"):
 
 
 async def _sut(inputs):
-    scenario = Scenario(**inputs)
-    return await scenario.run()
+    return await Conformity(rule=inputs["rule"]).run(
+        Trace(interactions=inputs["interactions"])
+    )
 
 
 @pytest.mark.functional
