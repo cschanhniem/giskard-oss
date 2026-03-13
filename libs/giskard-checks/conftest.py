@@ -1,3 +1,3 @@
 # Top-level conftest for giskard-checks (pytest rootdir).
-# Register the eval hook plugin (pytest_generate_tests for @eval_file parametrization).
-pytest_plugins = ["giskard.checks.utils.eval"]
+# Register the giskard-checks pytest plugin (eval_file, Rich failure rendering).
+pytest_plugins = ["giskard.checks.pytest.plugin"]

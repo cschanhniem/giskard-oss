@@ -8,8 +8,8 @@ from giskard.checks import (
     Interaction,
     Scenario,
     Trace,
+    eval_file,
 )
-from giskard.checks.utils.eval import eval_file
 
 
 async def _sut(inputs):

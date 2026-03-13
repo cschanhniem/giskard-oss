@@ -43,6 +43,7 @@ from .judges import (
     LLMCheckResult,
     LLMJudge,
 )
+from .pytest.eval import eval_file
 from .scenarios.runner import ScenarioRunner
 from .scenarios.suite import Suite
 from .settings import get_default_generator, set_default_generator
@@ -110,4 +111,6 @@ __all__ = [
     # Settings
     "set_default_generator",
     "get_default_generator",
+    # Pytest helpers (lazy pytest dependency)
+    "eval_file",
 ]

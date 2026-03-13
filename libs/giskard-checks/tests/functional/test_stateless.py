@@ -88,6 +88,7 @@ def adapter(
 
 
 # tests
+@pytest.mark.functional
 async def test_single_message(
     adapter: Callable[[agents.Message, MessageTraces], Awaitable[agents.Message]],
 ):
@@ -156,6 +157,7 @@ class UserSimulatorOutput(BaseModel):
 
 
 # tests
+@pytest.mark.functional
 async def test_user_simulator(
     generator: agents.Generator,
     adapter: Callable[[agents.Message, MessageTraces], Awaitable[agents.Message]],

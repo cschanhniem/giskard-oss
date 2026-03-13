@@ -22,6 +22,8 @@ asyncio_mode = "auto"
 pythonpath = ["src"]
 markers = [
     "integration: integration tests that are skipped unless --run-integration is provided",
+    "functional: tests that require external API calls (deselect with '-m \"not functional\"')",
+    "eval: parametrizes a test function from an eval JSONL file",
 ]
 
 [tool.ruff.lint]

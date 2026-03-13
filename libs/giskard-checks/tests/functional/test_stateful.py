@@ -112,6 +112,7 @@ def adapter(
 
 
 # tests
+@pytest.mark.functional
 async def test_single_message(
     adapter: Callable[
         [agents.Message, Trace[agents.Message, agents.Message]],
@@ -187,6 +188,7 @@ class UserSimulatorOutput(BaseModel):
 
 
 # tests
+@pytest.mark.functional
 async def test_user_simulator(
     generator: agents.Generator,
     adapter: Callable[

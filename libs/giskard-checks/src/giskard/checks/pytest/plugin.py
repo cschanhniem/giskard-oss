@@ -1,16 +1,20 @@
+import json
+
 import pytest
 from rich.console import Console
 
 _console = Console(force_terminal=True)
 
-# Mark every test in this directory as integration by default.
-pytestmark = pytest.mark.functional
+
+def pytest_generate_tests(metafunc):
+    marker = metafunc.definition.get_closest_marker("eval")
+    if marker:
+        filename = marker.args[0]
+        with open(filename, "r") as f:
+            test_data = [json.loads(line) for line in f if line.strip()]
+        metafunc.parametrize("data", test_data)
 
 
-# TODO: make this a plugin
-# # pyproject.toml
-# [project.entry-points."pytest11"]
-# giskard_checks = "giskard.checks.pytest.plugin"
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     """
