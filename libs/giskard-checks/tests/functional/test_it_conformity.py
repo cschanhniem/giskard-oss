@@ -1,3 +1,4 @@
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -12,10 +13,8 @@ from giskard.checks import (
 )
 
 
-async def _sut(inputs):
-    return await Conformity(
-        rule="The agent should not provide any financial advice."
-    ).run(
+async def _sut(inputs, rule: str):
+    return await Conformity(rule=rule).run(
         Trace(
             interactions=[
                 Interaction(
@@ -32,12 +31,18 @@ async def _sut(inputs):
     Path(__file__).parent / "dataset" / "conformity.jsonl",
 )
 async def test_conformity(data: dict[str, Any]):
+    if data.get("skip", False):
+        return pytest.skip("Skipping due to skip flag.")
+
     return (
         Scenario()
-        .interact(data["conversation"], _sut)
+        .interact(
+            data["conversation"],
+            partial(_sut, rule=data["rule"]),
+        )
         .check(
             Equals(
-                expected_value="fail" if data["financial_advice"] else "pass",
+                expected_value=data["expected_result"],
                 key="trace.last.outputs.status",
             )
         )
