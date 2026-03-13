@@ -1,5 +1,6 @@
 """Tests for the tools module."""
 
+import json
 from datetime import datetime, timezone
 from typing import List
 from uuid import UUID
@@ -188,7 +189,68 @@ async def test_tool_method_catches_errors(generator):
 
 
 # ---------------------------------------------------------------------------
-# GAP-005: Input coercion and output serialization
+# Tool.run() serialization — non-string return types
+# ---------------------------------------------------------------------------
+
+
+class CityWeather(BaseModel):
+    city: str
+    temp: float
+
+
+@pytest.mark.parametrize(
+    "return_value, expected",
+    [
+        pytest.param("sunny", "sunny", id="str-passthrough"),
+        pytest.param({"temp": 22}, json.dumps({"temp": 22}), id="dict"),
+        pytest.param([1, 2, 3], json.dumps([1, 2, 3]), id="list"),
+        pytest.param(42, "42", id="int"),
+        pytest.param(3.14, "3.14", id="float"),
+        pytest.param(True, "true", id="bool"),
+        pytest.param(None, "null", id="none"),
+    ],
+)
+async def test_tool_run_serializes_to_str(return_value, expected):
+    """Tool.run() returns str: strings as-is, everything else json.dumps'd."""
+
+    @tool
+    def stub(x: str) -> object:
+        """Return a value.
+
+        Parameters
+        ----------
+        x : str
+            Ignored.
+        """
+        return return_value
+
+    result = await stub.run({"x": "ignored"})
+    assert result == expected
+    assert isinstance(result, str)
+
+
+async def test_tool_run_serializes_basemodel():
+    """Tool.run() serializes BaseModel via TypeAdapter to JSON-safe str."""
+
+    @tool
+    def get_weather(city: str) -> CityWeather:
+        """Get weather.
+
+        Parameters
+        ----------
+        city : str
+            City name.
+        """
+        return CityWeather(city=city, temp=22.5)
+
+    result = await get_weather.run({"city": "Paris"})
+    assert isinstance(result, str)
+    parsed = json.loads(result)
+    assert parsed == {"city": "Paris", "temp": 22.5}
+
+
+# ---------------------------------------------------------------------------
+# GAP-005: Input coercion
 # ---------------------------------------------------------------------------
 
 
@@ -283,12 +345,17 @@ async def test_tool_run_coerces_list_basemodel_input():
             ]
         }
     )
-    assert result == 2
+    assert result == "2"
     assert all(isinstance(p, Person) for p in received["people"])
 
 
+# ---------------------------------------------------------------------------
+# GAP-005: Output serialization via TypeAdapter
+# ---------------------------------------------------------------------------
+
+
 async def test_tool_run_serializes_basemodel_output_json_safe():
-    """Tool.run() should produce JSON-safe output for BaseModel returns."""
+    """Tool.run() should produce JSON-safe str for BaseModel with rich types."""
     ts = datetime(2025, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
     uid = UUID("12345678-1234-5678-1234-567812345678")
 
@@ -304,14 +371,15 @@ async def test_tool_run_serializes_basemodel_output_json_safe():
         return TimestampedRecord(id=uid, created_at=ts, label=label)
 
     result = await create_record.run({"label": "test"})
-    assert isinstance(result, dict)
-    assert isinstance(result["id"], str)
-    assert isinstance(result["created_at"], str)
-    assert result["label"] == "test"
+    assert isinstance(result, str)
+    parsed = json.loads(result)
+    assert isinstance(parsed["id"], str)
+    assert isinstance(parsed["created_at"], str)
+    assert parsed["label"] == "test"
 
 
 async def test_tool_run_serializes_list_basemodel_output():
-    """Tool.run() should serialize list[BaseModel] to list of JSON-safe dicts."""
+    """Tool.run() should serialize list[BaseModel] to JSON-safe str."""
 
     @tool
     def list_addresses(n: int) -> list[Address]:
@@ -325,14 +393,15 @@ async def test_tool_run_serializes_list_basemodel_output():
         return [Address(street=f"St {i}", city=f"City {i}") for i in range(n)]
 
     result = await list_addresses.run({"n": 3})
-    assert isinstance(result, list)
-    assert len(result) == 3
-    assert all(isinstance(item, dict) for item in result)
-    assert result[0] == {"street": "St 0", "city": "City 0"}
+    assert isinstance(result, str)
+    parsed = json.loads(result)
+    assert len(parsed) == 3
+    assert all(isinstance(item, dict) for item in parsed)
+    assert parsed[0] == {"street": "St 0", "city": "City 0"}
 
 
 @pytest.mark.parametrize(
-    "args,expected",
+    "args, expected",
     [
         pytest.param({"query": "hello", "limit": 5}, "hello:5", id="str-int"),
         pytest.param({"query": "x", "limit": 0}, "x:0", id="str-zero"),

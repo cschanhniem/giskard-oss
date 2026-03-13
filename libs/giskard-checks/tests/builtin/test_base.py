@@ -3,7 +3,8 @@ from typing import override
 
 import pytest
 from giskard.agents.chat import Message
-from giskard.agents.generators.base import BaseGenerator, GenerationParams, Response
+from giskard.agents.generators._types import FinishReason
+from giskard.agents.generators.base import BaseGenerator, GenerationParams
 from giskard.checks import BaseLLMCheck, Trace
 from pydantic import BaseModel, Field
 
@@ -15,23 +16,22 @@ class MockGenerator(BaseGenerator):
     calls: list[list[Message]] = Field(default_factory=list)
 
     @override
-    async def _complete(
-        self, messages: list[Message], params: GenerationParams | None = None
-    ) -> Response:
+    async def _call_model(
+        self,
+        messages: list[Message],
+        params: GenerationParams,
+    ) -> tuple[Message, FinishReason]:
         self.calls.append(messages)
-        return Response(
-            message=Message(
-                role="assistant",
-                content=json.dumps(
-                    {
-                        "score": self.score,
-                        "passed": self.passed,
-                        "reasoning": self.reasoning,
-                    }
-                ),
+        return Message(
+            role="assistant",
+            content=json.dumps(
+                {
+                    "score": self.score,
+                    "passed": self.passed,
+                    "reasoning": self.reasoning,
+                }
             ),
-            finish_reason="stop",
-        )
+        ), "stop"
 
 
 class TestBaseLLMCheck:
@@ -47,10 +47,11 @@ class TestBaseLLMCheck:
                 return "What is the score?"
 
             @property
+            @override
             def output_type(self) -> type[BaseModel]:
                 return CustomOutputType
 
         generator = MockGenerator(score=0.85, passed=True, reasoning="Good score")
         check = CustomLLMCheck(generator=generator)
         with pytest.raises(NotImplementedError):
-            await check.run(Trace())
+            _ = await check.run(Trace())

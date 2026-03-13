@@ -1,6 +1,7 @@
 """Core tool functionality for Giskard Agents."""
 
 import inspect
+import json
 from typing import Any, Callable, Literal, TypeVar
 
 import logfire_api as logfire
@@ -139,11 +140,23 @@ class Tool(BaseModel):
     @logfire.instrument("tool.run")
     async def run(
         self, arguments: dict[str, Any], ctx: RunContext | None = None
-    ) -> Any:
-        """Run the tool's function asynchronously.
+    ) -> str:
+        """Run the tool's function and return a serialized string result.
 
-        This method handles both sync and async functions by awaiting async
-        functions. Errors are handled based on ``self.catch``.
+        Executes the underlying function (sync or async), handles errors via
+        ``self.catch``, and serializes the result to a string suitable for use
+        as ``Message.content``.
+
+        Input coercion: if a ``_params_model`` is available (set by
+        ``from_callable``), raw dict arguments are validated through the
+        Pydantic model so that e.g. nested dicts become typed ``BaseModel``
+        instances before the function is called.
+
+        Output serialization: if a ``_return_adapter`` is available, the result
+        is serialized to JSON-safe Python via ``TypeAdapter.dump_python`` (this
+        handles ``BaseModel``, ``datetime``, ``UUID``, ``list[BaseModel]``,
+        etc.). String results are returned as-is; everything else is
+        ``json.dumps``'d.
 
         Parameters
         ----------
@@ -154,28 +167,25 @@ class Tool(BaseModel):
 
         Returns
         -------
-        Any
-            The result of calling the function.
+        str
+            The serialized result of calling the function.
         """
 
-        # Coerce dict arguments into typed objects via the Pydantic params model.
-        # We use getattr() instead of model_dump() to preserve coerced types
-        # (e.g. a raw dict becomes a BaseModel instance). Extra keys that are
-        # not in model_fields are dropped (Pydantic defaults to extra='ignore').
-        if self._params_model is not None:
-            validated = self._params_model.model_validate(arguments)
-            arguments = {
-                name: getattr(validated, name)
-                for name in arguments
-                if name in self._params_model.model_fields
-            }
-
-        # Inject the context after coercion (RunContext is excluded from the model)
-        if ctx and self.run_context_param:
-            arguments = arguments.copy()
-            arguments[self.run_context_param] = ctx
-
         try:
+            # Coerce dict arguments into typed objects via the Pydantic params model.
+            # Extra keys not in model_fields are dropped (Pydantic extra='ignore').
+            if self._params_model is not None:
+                validated = self._params_model.model_validate(arguments)
+                arguments = {
+                    name: getattr(validated, name)
+                    for name in self._params_model.model_fields
+                    if name in arguments
+                }
+
+            if ctx and self.run_context_param:
+                arguments = arguments.copy()
+                arguments[self.run_context_param] = ctx
+
             res = self.fn(**arguments)
             if inspect.isawaitable(res):
                 res = await res
@@ -192,24 +202,7 @@ class Tool(BaseModel):
         if self._return_adapter is not None:
             res = self._return_adapter.dump_python(res, mode="json")
 
-        return res
-
-    def to_litellm_function(self) -> dict[str, Any]:
-        """Convert the tool to a LiteLLM function format.
-
-        Returns
-        -------
-        dict[str, Any]
-            A dictionary in the LiteLLM function format.
-        """
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters_schema,
-            },
-        }
+        return res if isinstance(res, str) else json.dumps(res)
 
 
 class ToolMethod:

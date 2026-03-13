@@ -1,7 +1,9 @@
 import json
+from typing import override
 
 from giskard.agents.chat import Message
-from giskard.agents.generators.base import BaseGenerator, GenerationParams, Response
+from giskard.agents.generators._types import FinishReason
+from giskard.agents.generators.base import BaseGenerator, GenerationParams
 from giskard.checks import CheckStatus, Conformity, Interaction, Trace
 from pydantic import Field
 
@@ -11,17 +13,17 @@ class MockGenerator(BaseGenerator):
     reason: str | None
     calls: list[list[Message]] = Field(default_factory=list)
 
-    async def _complete(
-        self, messages: list[Message], params: GenerationParams | None = None
-    ) -> Response:
+    @override
+    async def _call_model(
+        self,
+        messages: list[Message],
+        params: GenerationParams,
+    ) -> tuple[Message, FinishReason]:
         self.calls.append(messages)
-        return Response(
-            message=Message(
-                role="assistant",
-                content=json.dumps({"passed": self.passed, "reason": self.reason}),
-            ),
-            finish_reason="stop",
-        )
+        return Message(
+            role="assistant",
+            content=json.dumps({"passed": self.passed, "reason": self.reason}),
+        ), "stop"
 
 
 async def test_run_returns_success() -> None:
