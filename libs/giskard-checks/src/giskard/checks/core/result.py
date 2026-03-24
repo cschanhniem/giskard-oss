@@ -3,6 +3,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 from rich.console import Console, ConsoleOptions, RenderResult
+from rich.panel import Panel
 from rich.rule import Rule
 
 from .interaction import Trace
@@ -16,18 +17,22 @@ STATUS_MAPPING = {
     "pass": {
         "color": "green",
         "title": "✅ PASSED",
+        "symbol": ".",
     },
     "error": {
         "color": "yellow",
         "title": "⚠️ ERROR",
+        "symbol": "E",
     },
     "fail": {
         "color": "red",
         "title": "❌ FAILED",
+        "symbol": "F",
     },
     "skip": {
         "color": "gray",
         "title": "⚠️ SKIPPED",
+        "symbol": "s",
     },
 }
 
@@ -68,7 +73,14 @@ class Metric(BaseModel):
     value: float
 
 
-class CheckResult(BaseModel):
+class BaseResult(BaseModel, frozen=True):
+    def print_report(self, console: Console | None = None) -> None:
+        """Format the result as a report."""
+        console = console or Console()
+        console.print(self)
+
+
+class CheckResult(BaseResult, frozen=True):
     """Immutable result produced by running a `Check`.
 
     Attributes
@@ -187,10 +199,15 @@ class CheckResult(BaseModel):
 
         name = self.details.get("check_name", "[dim italic]Unnamed check[/dim italic]")
 
-        yield f"[{status['color']} bold]{name}[/{status['color']} bold]\t[{status['color']}]{self.status.value.upper()}[/{status['color']}]"
-
         if self.status == CheckStatus.FAIL or self.status == CheckStatus.ERROR:
-            yield self.message or "No specific error message provided"
+            details = (
+                self.message
+                or "[dim italic]No specific error message provided[/dim italic]"
+            )
+        else:
+            details = ""
+
+        yield f"[{status['color']} bold]{name}[/{status['color']} bold]\t[{status['color']}]{self.status.value.upper()}[/{status['color']}]\t{details}"
 
 
 class ScenarioStatus(str, Enum):
@@ -217,7 +234,7 @@ class ScenarioAssertionError(AssertionError):
         yield from self.result.__rich_console__(console, options)
 
 
-class ScenarioResult[InputType, OutputType](BaseModel):
+class ScenarioResult[InputType, OutputType](BaseResult, frozen=True):
     """Result of executing an entire scenario.
 
     Attributes
@@ -286,6 +303,11 @@ class ScenarioResult[InputType, OutputType](BaseModel):
         """True when all steps were skipped."""
         return self.status == ScenarioStatus.SKIP
 
+    @property
+    def failures_and_errors(self) -> list["TestCaseResult"]:
+        """Return a list of test case results that failed or errored."""
+        return [step for step in self.steps if step.failed or step.errored]
+
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
@@ -324,7 +346,7 @@ class TestCaseStatus(str, Enum):
     SKIP = "skip"
 
 
-class TestCaseResult(BaseModel):
+class TestCaseResult(BaseResult, frozen=True):
     """Immutable summary of a test case execution with full run history.
 
     Attributes
@@ -384,6 +406,11 @@ class TestCaseResult(BaseModel):
     def skipped(self) -> bool:
         """True when all checks were skipped in the final run."""
         return self.status == TestCaseStatus.SKIP
+
+    @property
+    def failures_and_errors(self) -> list[CheckResult]:
+        """Return a list of check results that failed or errored."""
+        return [result for result in self.results if result.failed or result.errored]
 
     def format_failures(self) -> list[str]:
         """Format failed check results into a list of readable error messages.
@@ -465,7 +492,7 @@ class TestCaseResult(BaseModel):
         yield Rule(subtitle, style=f"{status['color']} bold")
 
 
-class SuiteResult(BaseModel):
+class SuiteResult(BaseResult, frozen=True):
     """Aggregate result object for the suite.
 
     Attributes
@@ -524,36 +551,49 @@ class SuiteResult(BaseModel):
             return 1.0
         return self.passed_count / denominator
 
+    @property
+    def failures_and_errors(self) -> list[ScenarioResult[Any, Any]]:
+        """Return a list of scenario results that failed or errored."""
+        return [r for r in self.results if r.failed or r.errored]
+
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
         yield Rule("Suite Results", style="bold blue")
 
         # Dots view
-        dots = ""
-        for r in self.results:
-            if r.passed:
-                char, color = ".", STATUS_MAPPING["pass"]["color"]
-            elif r.failed:
-                char, color = "F", STATUS_MAPPING["fail"]["color"]
-            elif r.errored:
-                char, color = "E", STATUS_MAPPING["error"]["color"]
-            elif r.skipped:
-                char, color = "s", STATUS_MAPPING["skip"]["color"]
-            else:
-                raise NotImplementedError(f"Status {r.status} handling not implemented")
-            dots += f"[{color}]{char}[/{color}]"
-        yield dots
+        yield "".join(
+            f"[{STATUS_MAPPING[r.status]['color']}]{STATUS_MAPPING[r.status]['symbol']}[/{STATUS_MAPPING[r.status]['color']}]"
+            for r in self.results
+        )
+        yield ""
 
-        # Failure/Error summary
-        failures_and_errors = [r for r in self.results if r.failed or r.errored]
+        failures_and_errors = self.failures_and_errors
+
         if failures_and_errors:
-            n_loggable_failures = 20
-            yield ""
-            yield "[bold red]Failures/Errors Summary:[/bold red]"
+            n_loggable_failures = 20  # TODO: make this configurable
+
+            # Details
+            yield Rule("FAILURES", characters="=", style="grey")
+            for f in failures_and_errors[:n_loggable_failures]:
+                yield Panel(
+                    f,
+                    title=f.scenario_name,
+                    border_style=f"{STATUS_MAPPING[f.status]['color']} bold",
+                )
+            if len(failures_and_errors) > n_loggable_failures:
+                yield f"  ... and {len(failures_and_errors) - n_loggable_failures} more"
+
+            # Summary
+            yield Rule("SUMMARY", characters="=", style="grey")
             for f in failures_and_errors[:n_loggable_failures]:
                 status = STATUS_MAPPING[f.status]
-                yield f"  [{status['color']}]{f.status.value.upper()}[/{status['color']}] {f.scenario_name}"
+                yield f"[{status['color']} bold]{f.scenario_name}[/{status['color']} bold]\t[{status['color']}]{f.status.value.upper()}[/{status['color']}]"
+                for tc in f.failures_and_errors:
+                    for c in tc.failures_and_errors:
+                        yield from (
+                            f"\t{line}" for line in c.__rich_console__(console, options)
+                        )
             if len(failures_and_errors) > n_loggable_failures:
                 yield f"  ... and {len(failures_and_errors) - n_loggable_failures} more"
 

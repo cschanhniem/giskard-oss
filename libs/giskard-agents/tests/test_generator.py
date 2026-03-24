@@ -1,11 +1,10 @@
 import json
 import time
 from typing import Any, override
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from giskard.agents.chat import Chat, Message
-from giskard.agents.generators import FinishReason
 from giskard.agents.generators.base import BaseGenerator, GenerationParams, Response
 from giskard.agents.generators.litellm_generator import LiteLLMGenerator
 from giskard.agents.templates import MessageTemplate
@@ -145,7 +144,7 @@ def test_generator_with_params():
 
 
 def test_generator_with_params_and_rate_limiter():
-    """Test that with_params works correctly with a rate limiter."""
+    """with_params uses a shallow copy: rate limiter is shared, not deep-copied."""
     rate_limiter = MinIntervalRateLimiter.from_rpm(100, max_concurrent=5)
     generator = LiteLLMGenerator(
         model="test-model",
@@ -154,12 +153,17 @@ def test_generator_with_params_and_rate_limiter():
 
     assert generator.rate_limiter == rate_limiter
 
-    generator_with_params = generator.with_params(temperature=0.5, max_tokens=100)
+    with patch.object(
+        type(rate_limiter), "__deepcopy__", new_callable=MagicMock
+    ) as mock_deepcopy:
+        generator_with_params = generator.with_params(temperature=0.5, max_tokens=100)
+        mock_deepcopy.assert_not_called()
+
     assert isinstance(generator_with_params, LiteLLMGenerator)
     assert generator_with_params.params.temperature == 0.5
     assert generator_with_params.params.max_tokens == 100
 
-    assert generator_with_params.rate_limiter == rate_limiter
+    assert generator_with_params.rate_limiter is rate_limiter
 
     assert generator.params.temperature == 1.0  # default value
     assert generator.params.max_tokens is None
@@ -216,26 +220,33 @@ class SpyGenerator(BaseGenerator):
         self,
         messages: list[Message],
         params: GenerationParams,
-    ) -> tuple[Message, FinishReason]:
+        metadata: dict[str, Any] | None = None,
+    ) -> Response:
         self.call_count += 1
         self.calls.append({"messages": messages, "params": params})
 
         if self.call_count == 1 and params.tools:
-            return Message(
-                role="assistant",
-                content=None,
-                tool_calls=[
-                    ToolCall(
-                        id="call_spy_1",
-                        function=Function(
-                            name=params.tools[0].name,
-                            arguments=json.dumps({"city": "Paris"}),
-                        ),
-                    )
-                ],
-            ), "tool_calls"
+            return Response(
+                message=Message(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        ToolCall(
+                            id="call_spy_1",
+                            function=Function(
+                                name=params.tools[0].name,
+                                arguments=json.dumps({"city": "Paris"}),
+                            ),
+                        )
+                    ],
+                ),
+                finish_reason="tool_calls",
+            )
 
-        return Message(role="assistant", content=self.canned_response), "stop"
+        return Response(
+            message=Message(role="assistant", content=self.canned_response),
+            finish_reason="stop",
+        )
 
 
 async def test_call_model_receives_internal_types():
@@ -281,10 +292,13 @@ async def test_subclass_controls_message_serialization():
             self,
             messages: list[Message],
             params: GenerationParams,
-        ) -> tuple[Message, FinishReason]:
+            metadata: dict[str, Any] | None = None,
+        ) -> Response:
             last_content = messages[-1].content or ""
             tagged = f"[tagged] {last_content}"
-            return Message(role="assistant", content=tagged), "stop"
+            return Response(
+                message=Message(role="assistant", content=tagged), finish_reason="stop"
+            )
 
     gen = TaggingGenerator()
     chat = await ChatWorkflow(generator=gen).chat("hello", role="user").run()
@@ -312,9 +326,12 @@ async def test_subclass_controls_tool_serialization():
             self,
             messages: list[Message],
             params: GenerationParams,
-        ) -> tuple[Message, FinishReason]:
+            metadata: dict[str, Any] | None = None,
+        ) -> Response:
             content = f"custom_{params.tools[0].name}" if params.tools else "none"
-            return Message(role="assistant", content=content), "stop"
+            return Response(
+                message=Message(role="assistant", content=content), finish_reason="stop"
+            )
 
     gen = RenamedToolGenerator()
     chat = await (
