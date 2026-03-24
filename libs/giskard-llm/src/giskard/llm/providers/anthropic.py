@@ -1,6 +1,6 @@
 """Anthropic provider -- uses the ``anthropic`` SDK directly."""
 
-# pyright: reportMissingImports=false
+# pyright: reportMissingImports=false, reportAttributeAccessIssue=false, reportImplicitRelativeImport=false
 
 import json
 from typing import Any

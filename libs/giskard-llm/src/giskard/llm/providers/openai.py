@@ -1,6 +1,6 @@
 """OpenAI provider -- uses the ``openai`` SDK directly."""
 
-# pyright: reportMissingImports=false
+# pyright: reportMissingImports=false, reportAttributeAccessIssue=false, reportImplicitRelativeImport=false
 
 from typing import Any
 
