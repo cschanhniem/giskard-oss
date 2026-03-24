@@ -1,4 +1,7 @@
+import os
+
 from giskard.agents.embeddings import BaseEmbeddingModel, EmbeddingModel
+from giskard.agents.embeddings.base import EmbeddingParams
 from giskard.agents.generators import BaseGenerator, Generator
 
 # Global default generator
@@ -24,10 +27,12 @@ def get_default_generator() -> BaseGenerator:
     Returns
     -------
     BaseGenerator
-        The current default generator, or a default GPT-4o-mini generator
-        if none has been set.
+        The current default generator, or ``TEST_MODEL`` (default
+        ``gemini/gemini-2.0-flash``) if none has been set.
     """
-    return _default_generator or Generator(model="openai/gpt-4o-mini")
+    return _default_generator or Generator(
+        model=os.getenv("TEST_MODEL", "gemini/gemini-2.0-flash")
+    )
 
 
 def set_default_embedding_model(embedding_model: "BaseEmbeddingModel") -> None:
@@ -48,7 +53,10 @@ def get_default_embedding_model() -> BaseEmbeddingModel:
     Returns
     -------
     BaseEmbeddingModel
-        The current default embedding model, or a default text-embedding-3-small model
-        if none has been set.
+        The current default embedding model, or ``TEST_EMBEDDING_MODEL`` (default
+        ``gemini/gemini-embedding-001``) if none has been set.
     """
-    return _default_embedding_model or EmbeddingModel(model="text-embedding-3-small")
+    return _default_embedding_model or EmbeddingModel(
+        model=os.getenv("TEST_EMBEDDING_MODEL", "gemini/gemini-embedding-001"),
+        params=EmbeddingParams(dimensions=1536),
+    )

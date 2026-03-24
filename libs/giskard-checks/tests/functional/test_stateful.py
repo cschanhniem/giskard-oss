@@ -47,12 +47,9 @@ def mock_apply_tool(mail: str, message: str) -> str:
 
 
 @pytest.fixture
-def generator() -> agents.Generator:
-    return agents.Generator(model="openai/gpt-4o-mini")
-
-
-@pytest.fixture
-def mock_agent(generator: agents.Generator) -> agents.ChatWorkflow[agents.Message]:
+async def mock_agent(
+    generator: agents.Generator,
+) -> agents.ChatWorkflow[agents.Message]:
     return generator.chat(message=system_prompt, role="system").with_tools(
         mock_apply_tool
     )
