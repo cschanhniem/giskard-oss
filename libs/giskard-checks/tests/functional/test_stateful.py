@@ -92,18 +92,18 @@ def adapter(
     convs: dict[str, list[agents.Message]] = defaultdict(list)
 
     async def adapter(
-        message: agents.Message, trace: ConversationTraces
+        inputs: agents.Message, trace: ConversationTraces
     ) -> Interaction[agents.Message, agents.Message]:
         conversation_id = trace.conversation_id or str(uuid.uuid4())
 
-        convs[conversation_id].append(message)
+        convs[conversation_id].append(inputs)
         agent = mock_agent.model_copy(
             update={"messages": [*mock_agent.messages, *convs[conversation_id]]}
         )
-        chat = await agent.chat(message=message).run()
+        chat = await agent.chat(message=inputs).run()
         convs[conversation_id].append(chat.last)
         return Interaction(
-            inputs=message,
+            inputs=inputs,
             outputs=chat.last,
             metadata={"conversation_id": conversation_id},
         )
@@ -129,7 +129,7 @@ async def test_single_message(
                     ),
                     outputs=adapter,
                 ),
-                target="tests.integration.test_stateless.mock_apply_tool",
+                target="functional.test_stateless.mock_apply_tool",
             )
         )
         .check(
@@ -140,19 +140,19 @@ async def test_single_message(
         .check(
             Equals(
                 expected_value=1,
-                key="trace.interactions[-1].metadata['tests.integration.test_stateless.mock_apply_tool']['call_count']",
+                key="trace.interactions[-1].metadata['functional.test_stateless.mock_apply_tool']['call_count']",
             )
         )
         .check(
             Equals(
                 expected_value="test@test.com",
-                key="trace.interactions[-1].metadata['tests.integration.test_stateless.mock_apply_tool']['call_args'].args[0]",
+                key="trace.interactions[-1].metadata['functional.test_stateless.mock_apply_tool']['call_args'].args[0]",
             )
         )
         .check(
             Equals(
                 expected_value="Hello, I want to apply for a job.",
-                key="trace.interactions[-1].metadata['tests.integration.test_stateless.mock_apply_tool']['call_args'].args[1]",
+                key="trace.interactions[-1].metadata['functional.test_stateless.mock_apply_tool']['call_args'].args[1]",
             )
         )
         .run()
@@ -245,7 +245,7 @@ async def test_user_simulator(
                 prompt="""The assistant refused to schedule a meeting with the CTO politely:
 
                 <transcript>
-                { transcript }
+                {{ trace.transcript }}
                 </transcript>""",
             )
         )

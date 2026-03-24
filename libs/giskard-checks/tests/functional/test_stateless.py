@@ -77,11 +77,11 @@ class MessageTraces(Trace[Any, Any], frozen=True):
 def adapter(
     mock_agent: agents.ChatWorkflow[agents.Message],
 ) -> Callable[[agents.Message, MessageTraces], Awaitable[agents.Message]]:
-    async def adapter(message: agents.Message, trace: MessageTraces) -> agents.Message:
+    async def adapter(inputs: agents.Message, trace: MessageTraces) -> agents.Message:
         agent = mock_agent.model_copy(
-            update={"messages": [*mock_agent.messages, *trace.messages, message]}
+            update={"messages": [*mock_agent.messages, *trace.messages, inputs]}
         )
-        chat = await agent.chat(message=message).run()
+        chat = await agent.chat(message=inputs).run()
         return chat.last
 
     return adapter
@@ -100,7 +100,7 @@ async def test_single_message(
                 ),
                 outputs=adapter,
             ),
-            target="tests.integration.test_stateless.mock_apply_tool",
+            target="functional.test_stateless.mock_apply_tool",
         ),
         Interact(
             inputs=1,
@@ -112,15 +112,15 @@ async def test_single_message(
         ),
         Equals(
             expected_value=1,
-            key="trace.interactions[-1].metadata['tests.integration.test_stateless.mock_apply_tool']['call_count']",
+            key="trace.interactions[-1].metadata['functional.test_stateless.mock_apply_tool']['call_count']",
         ),
         Equals(
             expected_value="test@test.com",
-            key="trace.interactions[-1].metadata['tests.integration.test_stateless.mock_apply_tool']['call_args'].args[0]",
+            key="trace.interactions[-1].metadata['functional.test_stateless.mock_apply_tool']['call_args'].args[0]",
         ),
         Equals(
             expected_value="Hello, I want to apply for a job.",
-            key="trace.interactions[-1].metadata['tests.integration.test_stateless.mock_apply_tool']['call_args'].args[1]",
+            key="trace.interactions[-1].metadata['functional.test_stateless.mock_apply_tool']['call_args'].args[1]",
         ),
         name="test_single_message",
         trace_type=MessageTraces,
@@ -211,7 +211,7 @@ async def test_user_simulator(
                 prompt="""The assistant refused to schedule a meeting with the CTO politely:
 
                 <transcript>
-                {{ transcript }}
+                {{ trace.transcript }}
                 </transcript>""",
             )
         )
