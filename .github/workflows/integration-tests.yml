@@ -48,15 +48,14 @@ jobs:
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
         package: [giskard-core, giskard-agents, giskard-checks]
-    name: test-functional / ${{ matrix.package }} / ${{ matrix.python-version }}
+        provider: [google]
+    name: test-functional / ${{ matrix.package }} / ${{ matrix.provider }} / ${{ matrix.python-version }}
     env:
       PACKAGE: ${{ matrix.package }}
+      PROVIDER: ${{ matrix.provider }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          # Use the SHA from the event to ensure we're using the correct commit
-          # for the `labeled` event. For external contributors, we want to use
-          # the SHA corresponding to the time the label was added.
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
@@ -64,9 +63,11 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       - run: make install
+      - name: Install provider SDK
+        run: uv pip install "giskard-llm[$PROVIDER]"
       - name: Run functional tests
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TEST_MODEL: "gemini/gemini-2.0-flash"
           TEST_EMBEDDING_MODEL: "gemini/gemini-embedding-001"
-        run: make test-functional PACKAGE=$PACKAGE
+        run: make test-functional PACKAGE=$PACKAGE PROVIDER=$PROVIDER

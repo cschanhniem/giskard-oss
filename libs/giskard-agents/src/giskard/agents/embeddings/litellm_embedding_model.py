@@ -1,5 +1,5 @@
 import numpy as np
-from litellm import aembedding
+from giskard.llm import aembedding
 from pydantic import Field
 
 from .base import BaseEmbeddingModel, EmbeddingParams
@@ -7,7 +7,7 @@ from .base import BaseEmbeddingModel, EmbeddingParams
 
 @BaseEmbeddingModel.register("litellm")
 class LitellmEmbeddingModel(BaseEmbeddingModel):
-    """An embedding model that uses Litellm."""
+    """An embedding model backed by giskard-llm."""
 
     model: str = Field(default="gemini/gemini-embedding-001")
 
@@ -24,5 +24,5 @@ class LitellmEmbeddingModel(BaseEmbeddingModel):
             input=texts,
             **params_,
         )
-        embeddings = [np.array(elt["embedding"]) for elt in result.data]
+        embeddings = [np.array(elt.embedding) for elt in result.data]
         return embeddings

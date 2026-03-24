@@ -11,24 +11,24 @@ from giskard.agents.templates import MessageTemplate
 from giskard.agents.tools import Function, Tool, ToolCall, tool
 from giskard.agents.workflow import ChatWorkflow
 from giskard.core import MinIntervalRateLimiter
-from litellm import ModelResponse
+from giskard.llm import Choice, ChoiceMessage, CompletionResponse
 from pydantic import Field
 
 
 @pytest.fixture
 def mock_response():
-    return ModelResponse(
+    return CompletionResponse(
         choices=[
-            dict(
+            Choice(
                 finish_reason="stop",
-                message=dict(role="assistant", content="Mock response"),
+                message=ChoiceMessage(role="assistant", content="Mock response"),
             )
         ]
     )
 
 
 async def test_litellm_generator_completion_with_mock(
-    generator: LiteLLMGenerator, mock_response: ModelResponse
+    generator: LiteLLMGenerator, mock_response: CompletionResponse
 ):
     with patch(
         "giskard.agents.generators.litellm_generator.acompletion",
@@ -43,6 +43,7 @@ async def test_litellm_generator_completion_with_mock(
         assert response.finish_reason == "stop"
 
 
+@pytest.mark.google
 @pytest.mark.functional
 async def test_generator_completion(generator: LiteLLMGenerator):
     response = await generator.complete(
@@ -62,6 +63,7 @@ async def test_generator_completion(generator: LiteLLMGenerator):
     assert response.finish_reason == "stop"
 
 
+@pytest.mark.google
 @pytest.mark.functional
 async def test_generator_chat(generator: LiteLLMGenerator):
     test_message = "Hello, world!"
@@ -85,7 +87,7 @@ async def test_generator_chat(generator: LiteLLMGenerator):
     assert isinstance(chats[2], Chat)
 
 
-async def test_litellm_generator_gets_rate_limiter(mock_response: ModelResponse):
+async def test_litellm_generator_gets_rate_limiter(mock_response: CompletionResponse):
     rate_limiter = MinIntervalRateLimiter.from_rpm(60, max_concurrent=1)
     generator = LiteLLMGenerator(
         model="test-model",
@@ -111,7 +113,7 @@ async def test_litellm_generator_gets_rate_limiter(mock_response: ModelResponse)
     assert elapsed_time < 3
 
 
-async def test_generator_without_rate_limiter(mock_response: ModelResponse):
+async def test_generator_without_rate_limiter(mock_response: CompletionResponse):
     generator = LiteLLMGenerator(model="test-model")
     with patch(
         "giskard.agents.generators.litellm_generator.acompletion",
@@ -169,7 +171,7 @@ def test_generator_with_params_and_rate_limiter():
     assert generator.params.max_tokens is None
 
 
-async def test_generator_with_params_overwrite(mock_response: ModelResponse):
+async def test_generator_with_params_overwrite(mock_response: CompletionResponse):
     # ARRANGE: Create a generator with base parameters.
     generator = LiteLLMGenerator(model="test-model").with_params(
         temperature=0.5,  # This should be preserved.

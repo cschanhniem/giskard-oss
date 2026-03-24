@@ -1,0 +1,34 @@
+[project]
+name = "giskard-llm"
+version = "1.0.0a1"
+description = "Lightweight LLM routing layer over native provider SDKs"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Giskard R&D", email = "rnd@giskard.ai" }]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.11.0,<3",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.30,<3"]
+google = ["google-genai>=1.0,<2"]
+anthropic = ["anthropic>=0.40,<1"]
+all = ["giskard-llm[openai,google,anthropic]"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff.lint.isort.sections]
+"my_packages" = ["giskard"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/giskard"]
+
+[tool.ruff.lint]
+select = ["I", "F401"]

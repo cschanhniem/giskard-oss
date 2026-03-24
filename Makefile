@@ -1,5 +1,5 @@
 # Variables
-LIBS := giskard-core giskard-agents giskard-checks
+LIBS := giskard-core giskard-llm giskard-agents giskard-checks
 PACKAGE ?= # Optional package to test (e.g., giskard-core, giskard-agents, giskard-checks)
 
 # Default target
@@ -36,9 +36,13 @@ else
 	$(foreach lib,$(LIBS),uv run pytest libs/$(lib) -m "not functional" &&) true
 endif
 
-test-functional: ## Run functional tests only (requires API keys), optional PACKAGE=<name>
+test-functional: ## Run functional tests only (requires API keys), optional PACKAGE=<name> PROVIDER=<name>
 ifdef PACKAGE
+ifdef PROVIDER
+	uv run pytest libs/$(PACKAGE) -m "functional and $(PROVIDER)"
+else
 	uv run pytest libs/$(PACKAGE) -m "functional"
+endif
 else
 	$(foreach lib,$(LIBS),uv run pytest libs/$(lib) -m "functional" &&) true
 endif

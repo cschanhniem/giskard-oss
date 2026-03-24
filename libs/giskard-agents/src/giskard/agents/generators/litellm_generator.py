@@ -1,28 +1,27 @@
 from typing import Any, cast, override
 
-from litellm import Choices, ModelResponse, acompletion
-from litellm import _should_retry as litellm_should_retry
+from giskard.llm import CompletionResponse, acompletion, should_retry
 from pydantic import Field
 
 from ..chat import Message
 from ..tools import Tool
-from ._types import GenerationParams, Response
+from ._types import FinishReason, GenerationParams, Response
 from .base import BaseGenerator
 from .middleware import CompletionMiddleware, RetryMiddleware, RetryPolicy
 
 
 @CompletionMiddleware.register("litellm_retry")
 class LiteLLMRetryMiddleware(RetryMiddleware):
-    """Retry middleware using LiteLLM's built-in retry-eligibility check."""
+    """Retry middleware that checks HTTP status codes for retry eligibility."""
 
     @override
     def _should_retry(self, err: Exception) -> bool:
-        return litellm_should_retry(getattr(err, "status_code", 0))
+        return should_retry(getattr(err, "status_code", 0))
 
 
 @BaseGenerator.register("litellm")
 class LiteLLMGenerator(BaseGenerator):
-    """A generator for creating chat completion pipelines using LiteLLM."""
+    """A generator for creating chat completion pipelines."""
 
     model: str = Field(
         description="The model identifier to use (e.g. 'gemini/gemini-2.0-flash')"
@@ -50,14 +49,14 @@ class LiteLLMGenerator(BaseGenerator):
         ]
 
     def _serialize_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
-        """Convert ``Message`` objects to LiteLLM's dict format."""
+        """Convert ``Message`` objects to the wire dict format."""
         return [
             m.model_dump(include={"role", "content", "tool_calls", "tool_call_id"})
             for m in messages
         ]
 
     def _deserialize_response(self, raw: Any) -> Message:
-        """Convert a LiteLLM response object into an internal ``Message``."""
+        """Convert a response message object into an internal ``Message``."""
         data = raw if isinstance(raw, dict) else raw.model_dump()
         return Message.model_validate(data)
 
@@ -76,16 +75,15 @@ class LiteLLMGenerator(BaseGenerator):
         if metadata:
             wire_params["metadata"] = metadata
 
-        raw = cast(
-            ModelResponse,
-            await acompletion(messages=wire_messages, model=self.model, **wire_params),
+        raw: CompletionResponse = await acompletion(
+            messages=wire_messages, model=self.model, **wire_params
         )
 
-        choice = cast(Choices, raw.choices[0])
+        choice = raw.choices[0]
         message = self._deserialize_response(choice.message)
         response_metadata = raw.model_dump(exclude={"choices"})
         return Response(
             message=message,
-            finish_reason=choice.finish_reason,  # pyright: ignore[reportArgumentType]
+            finish_reason=cast(FinishReason, choice.finish_reason),
             metadata=response_metadata,
         )
