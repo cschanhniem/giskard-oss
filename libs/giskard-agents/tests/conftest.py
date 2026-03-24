@@ -5,6 +5,7 @@ import pytest
 from giskard.agents.embeddings import EmbeddingModel
 from giskard.agents.embeddings.base import EmbeddingParams
 from giskard.agents.generators import Generator
+from giskard.llm.routing import _provider_cache
 
 _PROVIDER_PACKAGES = {
     "openai": "openai",
@@ -35,6 +36,14 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
                             reason=f"Provider SDK '{package}' not installed"
                         )
                     )
+
+
+@pytest.fixture(autouse=True)
+def _clear_provider_cache():
+    """Prevent stale async clients across event-loop boundaries."""
+    _provider_cache.clear()
+    yield
+    _provider_cache.clear()
 
 
 @pytest.fixture
