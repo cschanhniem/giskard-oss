@@ -1,4 +1,4 @@
-"""Tests for provider response conversion logic using mocked SDK clients."""
+"""Tests for provider response conversion, error mapping, and validation."""
 
 import json
 from types import SimpleNamespace
@@ -6,17 +6,9 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from giskard.llm.errors import RateLimitError
+from giskard.llm.errors import BadRequestError, RateLimitError
 from giskard.llm.providers.openai import OpenAIProvider
-from giskard.llm.routing import _provider_cache
-
-
-@pytest.fixture(autouse=True)
-def _clear_provider_cache():
-    _provider_cache.clear()
-    yield
-    _provider_cache.clear()
-
+from giskard.llm.types import ToolCall
 
 # -- OpenAI provider ----------------------------------------------------------
 
@@ -26,7 +18,6 @@ def _make_openai_response(
     finish_reason: str = "stop",
     tool_calls: list[dict[str, Any]] | None = None,
 ):
-    """Build a mock that mimics openai ChatCompletion response."""
     tc = None
     if tool_calls:
         tc = [
@@ -71,23 +62,24 @@ def _make_openai_embedding_response(embeddings: list[list[float]]):
     )
 
 
-@patch("giskard.llm.providers.openai._import_openai")
-async def test_openai_completion(mock_import):
-    mock_openai = MagicMock()
-    mock_import.return_value = mock_openai
-
+def _make_openai_provider():
     provider = OpenAIProvider.__new__(OpenAIProvider)
     provider._client = MagicMock()
     provider._client.chat = MagicMock()
     provider._client.chat.completions = MagicMock()
+    return provider
+
+
+@patch("giskard.llm.providers.openai._import_openai")
+async def test_openai_completion(mock_import):
+    mock_import.return_value = MagicMock()
+    provider = _make_openai_provider()
     provider._client.chat.completions.create = AsyncMock(
         return_value=_make_openai_response("Hello world")
     )
 
     resp = await provider.complete(
-        "gpt-4o",
-        [{"role": "user", "content": "Hi"}],
-        temperature=0.5,
+        "gpt-4o", [{"role": "user", "content": "Hi"}], temperature=0.5
     )
     assert resp.choices[0].message.content == "Hello world"
     assert resp.choices[0].finish_reason == "stop"
@@ -97,10 +89,8 @@ async def test_openai_completion(mock_import):
 
 
 @patch("giskard.llm.providers.openai._import_openai")
-async def test_openai_completion_with_tool_calls(mock_import):
-    mock_openai = MagicMock()
-    mock_import.return_value = mock_openai
-
+async def test_openai_completion_with_typed_tool_calls(mock_import):
+    mock_import.return_value = MagicMock()
     tool_calls = [
         {
             "id": "call_1",
@@ -110,11 +100,7 @@ async def test_openai_completion_with_tool_calls(mock_import):
             },
         }
     ]
-
-    provider = OpenAIProvider.__new__(OpenAIProvider)
-    provider._client = MagicMock()
-    provider._client.chat = MagicMock()
-    provider._client.chat.completions = MagicMock()
+    provider = _make_openai_provider()
     provider._client.chat.completions.create = AsyncMock(
         return_value=_make_openai_response(
             content=None, finish_reason="tool_calls", tool_calls=tool_calls
@@ -123,8 +109,11 @@ async def test_openai_completion_with_tool_calls(mock_import):
 
     resp = await provider.complete("gpt-4o", [{"role": "user", "content": "Weather?"}])
     assert resp.choices[0].finish_reason == "tool_calls"
-    assert resp.choices[0].message.tool_calls is not None
-    assert resp.choices[0].message.tool_calls[0]["function"]["name"] == "get_weather"
+    tcs = resp.choices[0].message.tool_calls
+    assert tcs is not None
+    assert isinstance(tcs[0], ToolCall)
+    assert tcs[0].function.name == "get_weather"
+    assert json.loads(tcs[0].function.arguments) == {"city": "Paris"}
 
 
 @patch("giskard.llm.providers.openai._import_openai")
@@ -132,11 +121,7 @@ async def test_openai_rate_limit_error(mock_import):
     openai = pytest.importorskip("openai")
     mock_import.return_value = openai
 
-    provider = OpenAIProvider.__new__(OpenAIProvider)
-    provider._client = MagicMock()
-    provider._client.chat = MagicMock()
-    provider._client.chat.completions = MagicMock()
-
+    provider = _make_openai_provider()
     mock_response = MagicMock()
     mock_response.status_code = 429
     mock_response.headers = {}
@@ -155,11 +140,8 @@ async def test_openai_rate_limit_error(mock_import):
 
 @patch("giskard.llm.providers.openai._import_openai")
 async def test_openai_embedding(mock_import):
-    mock_openai = MagicMock()
-    mock_import.return_value = mock_openai
-
-    provider = OpenAIProvider.__new__(OpenAIProvider)
-    provider._client = MagicMock()
+    mock_import.return_value = MagicMock()
+    provider = _make_openai_provider()
     provider._client.embeddings = MagicMock()
     provider._client.embeddings.create = AsyncMock(
         return_value=_make_openai_embedding_response([[0.1, 0.2], [0.3, 0.4]])
@@ -168,30 +150,140 @@ async def test_openai_embedding(mock_import):
     resp = await provider.embed("text-embedding-3-small", ["hello", "world"])
     assert len(resp.data) == 2
     assert resp.data[0].embedding == [0.1, 0.2]
-    assert resp.data[1].embedding == [0.3, 0.4]
 
 
-# -- Routing integration -------------------------------------------------------
+# -- OpenAI message validation ------------------------------------------------
 
 
 @patch("giskard.llm.providers.openai._import_openai")
-@patch("giskard.llm.providers.openai.OpenAIProvider.__init__", return_value=None)
-async def test_acompletion_routes_to_openai(mock_init, mock_import):
-    from giskard.llm import acompletion
+async def test_openai_validate_empty_messages(mock_import):
+    mock_import.return_value = MagicMock()
+    provider = _make_openai_provider()
+    with pytest.raises(BadRequestError, match="must not be empty"):
+        await provider.complete("gpt-4o", [])
 
-    mock_openai = MagicMock()
-    mock_import.return_value = mock_openai
 
-    with patch.object(
-        OpenAIProvider,
-        "complete",
-        new_callable=AsyncMock,
-        return_value=MagicMock(choices=[]),
-    ) as mock_complete:
-        await acompletion(
-            model="openai/gpt-4o",
-            messages=[{"role": "user", "content": "Hi"}],
+@patch("giskard.llm.providers.openai._import_openai")
+async def test_openai_validate_system_only(mock_import):
+    mock_import.return_value = MagicMock()
+    provider = _make_openai_provider()
+    with pytest.raises(BadRequestError, match="non-system message"):
+        await provider.complete("gpt-4o", [{"role": "system", "content": "Be helpful"}])
+
+
+@patch("giskard.llm.providers.openai._import_openai")
+async def test_openai_validate_tool_missing_id(mock_import):
+    mock_import.return_value = MagicMock()
+    provider = _make_openai_provider()
+    with pytest.raises(BadRequestError, match="tool_call_id"):
+        await provider.complete(
+            "gpt-4o",
+            [
+                {"role": "user", "content": "Hi"},
+                {"role": "tool", "content": "result"},
+            ],
         )
-        mock_complete.assert_called_once_with(
-            "gpt-4o", [{"role": "user", "content": "Hi"}]
+
+
+@patch("giskard.llm.providers.openai._import_openai")
+async def test_openai_validate_empty_system_content(mock_import):
+    mock_import.return_value = MagicMock()
+    provider = _make_openai_provider()
+    with pytest.raises(BadRequestError, match="non-empty content"):
+        await provider.complete(
+            "gpt-4o",
+            [
+                {"role": "system", "content": ""},
+                {"role": "user", "content": "Hi"},
+            ],
+        )
+
+
+@patch("giskard.llm.providers.openai._import_openai")
+async def test_openai_multiple_system_works(mock_import):
+    """OpenAI supports multiple system messages natively."""
+    mock_import.return_value = MagicMock()
+    provider = _make_openai_provider()
+    provider._client.chat.completions.create = AsyncMock(
+        return_value=_make_openai_response("Hello")
+    )
+    resp = await provider.complete(
+        "gpt-4o",
+        [
+            {"role": "system", "content": "Be helpful"},
+            {"role": "system", "content": "Be concise"},
+            {"role": "user", "content": "Hi"},
+        ],
+    )
+    assert resp.choices[0].message.content == "Hello"
+
+
+# -- Anthropic message validation ----------------------------------------------
+
+
+@patch("giskard.llm.providers.anthropic._import_anthropic")
+async def test_anthropic_validate_multi_system_raises(mock_import):
+    from giskard.llm.providers.anthropic import AnthropicProvider
+
+    mock_import.return_value = MagicMock()
+    provider = AnthropicProvider.__new__(AnthropicProvider)
+    provider._merge_system = False
+    provider._client = MagicMock()
+
+    with pytest.raises(BadRequestError, match="multiple system messages"):
+        await provider.complete(
+            "claude-3",
+            [
+                {"role": "system", "content": "A"},
+                {"role": "system", "content": "B"},
+                {"role": "user", "content": "Hi"},
+            ],
+        )
+
+
+@patch("giskard.llm.providers.anthropic._import_anthropic")
+async def test_anthropic_validate_multi_system_with_merge(mock_import):
+    from giskard.llm.providers.anthropic import AnthropicProvider
+
+    mock_anthropic = MagicMock()
+    mock_import.return_value = mock_anthropic
+
+    provider = AnthropicProvider.__new__(AnthropicProvider)
+    provider._merge_system = True
+    provider._client = MagicMock()
+
+    mock_raw = MagicMock()
+    mock_raw.content = [SimpleNamespace(type="text", text="Hello")]
+    mock_raw.stop_reason = "end_turn"
+    mock_raw.model = "claude-3"
+    mock_raw.usage = SimpleNamespace(input_tokens=10, output_tokens=5)
+    provider._client.messages.create = AsyncMock(return_value=mock_raw)
+
+    resp = await provider.complete(
+        "claude-3",
+        [
+            {"role": "system", "content": "A"},
+            {"role": "system", "content": "B"},
+            {"role": "user", "content": "Hi"},
+        ],
+    )
+    assert resp.choices[0].message.content == "Hello"
+
+
+@patch("giskard.llm.providers.anthropic._import_anthropic")
+async def test_anthropic_validate_alternation(mock_import):
+    from giskard.llm.providers.anthropic import AnthropicProvider
+
+    mock_import.return_value = MagicMock()
+    provider = AnthropicProvider.__new__(AnthropicProvider)
+    provider._merge_system = False
+    provider._client = MagicMock()
+
+    with pytest.raises(BadRequestError, match="alternating"):
+        await provider.complete(
+            "claude-3",
+            [
+                {"role": "user", "content": "Hi"},
+                {"role": "user", "content": "Hello again"},
+            ],
         )

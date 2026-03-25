@@ -4,6 +4,8 @@ from giskard.llm.types import (
     CompletionResponse,
     EmbeddingData,
     EmbeddingResponse,
+    ToolCall,
+    ToolCallFunction,
 )
 
 
@@ -30,14 +32,31 @@ def test_choice_message_excludes_none():
     assert "tool_calls" not in dump
 
 
-def test_choice_message_includes_tool_calls():
+def test_choice_message_includes_typed_tool_calls():
     msg = ChoiceMessage(
         role="assistant",
-        tool_calls=[{"id": "1", "type": "function", "function": {"name": "f"}}],
+        tool_calls=[
+            ToolCall(
+                id="call_1",
+                type="function",
+                function=ToolCallFunction(name="add", arguments='{"a":1,"b":2}'),
+            )
+        ],
     )
     dump = msg.model_dump()
     assert dump["tool_calls"] is not None
     assert len(dump["tool_calls"]) == 1
+    assert dump["tool_calls"][0]["function"]["name"] == "add"
+
+
+def test_tool_call_model():
+    tc = ToolCall(
+        id="call_1",
+        function=ToolCallFunction(name="get_weather", arguments='{"city":"Paris"}'),
+    )
+    assert tc.id == "call_1"
+    assert tc.type == "function"
+    assert tc.function.name == "get_weather"
 
 
 def test_embedding_response():

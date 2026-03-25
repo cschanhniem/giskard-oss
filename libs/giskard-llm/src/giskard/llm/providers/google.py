@@ -1,4 +1,43 @@
-"""Google Gemini provider -- uses the ``google-genai`` SDK directly."""
+"""Google Gemini provider using the ``google-genai`` SDK.
+
+Routing prefix: ``google/``
+
+Authentication:
+    - Env: ``GOOGLE_API_KEY`` or ``GEMINI_API_KEY``
+    - Kwargs: ``api_key``
+
+Role mapping:
+    - ``system`` -> extracted to ``system_instruction`` config (accepts a list)
+    - ``assistant`` -> ``model``
+    - ``tool`` -> ``function_response`` part
+    - ``user`` -> ``user``
+
+Message constraints:
+    - Multiple system messages: supported natively (passed as list)
+    - System-only messages: raises ``BadRequestError``
+    - No strict alternation required
+
+Tool call format:
+    - Tool definitions: converted to ``FunctionDeclaration``
+    - Tool results: converted to ``function_response`` parts
+    - Tool call IDs: synthetic (``call_0``, ``call_1``, ...) since Gemini
+      doesn't provide them
+
+Error mapping:
+    - ``google.genai.errors.ClientError`` (401/403) -> ``AuthenticationError``
+    - ``google.genai.errors.ClientError`` (429) -> ``RateLimitError``
+    - ``google.genai.errors.ClientError`` (other) -> ``BadRequestError``
+    - ``google.genai.errors.ServerError`` -> ``ServerError``
+    - ``google.genai.errors.APIError`` -> ``LLMError``
+
+Supported features:
+    - Completion: yes
+    - Embeddings: yes
+    - Structured output (response_format): yes, via ``response_schema``
+
+Provider-specific kwargs:
+    - ``safety_settings``: override default safety settings
+"""
 
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false
 
@@ -9,23 +48,28 @@ from typing import Any
 from pydantic import BaseModel
 
 from ..errors import (
+    AuthenticationError,
     BadRequestError,
     LLMError,
     ProviderNotAvailableError,
     RateLimitError,
     ServerError,
+    TimeoutError,
 )
 from ..types import (
+    ChatMessage,
     Choice,
     ChoiceMessage,
     CompletionResponse,
     EmbeddingData,
     EmbeddingResponse,
+    ToolCall,
+    ToolCallFunction,
     Usage,
 )
 from .base import BaseProvider
 
-PROVIDER = "gemini"
+PROVIDER = "google"
 
 
 def _import_genai():
@@ -56,22 +100,31 @@ def _import_genai_errors():
 
 
 class GoogleProvider(BaseProvider):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        **_kwargs: Any,
+    ) -> None:
         genai = _import_genai()
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        self._client = genai.Client(api_key=api_key)
+        resolved_key = (
+            api_key
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+        )
+        self._client = genai.Client(api_key=resolved_key)
 
     async def complete(
         self,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[ChatMessage],
         **params: Any,
     ) -> CompletionResponse:
         genai_errors = _import_genai_errors()
         types = _import_genai_types()
 
+        self._validate_messages(messages)
         contents = self._convert_messages(messages)
-        config = self._build_config(params, types)
+        config = self._build_config(messages, params, types)
 
         try:
             raw = await self._client.aio.models.generate_content(
@@ -80,15 +133,22 @@ class GoogleProvider(BaseProvider):
                 config=config,
             )
         except genai_errors.ClientError as e:
-            if e.code == 429:
+            status = getattr(e, "code", 400)
+            if status == 429:
                 raise RateLimitError(429, str(e), PROVIDER) from e
-            raise BadRequestError(e.code, str(e), PROVIDER) from e
+            if status in (401, 403):
+                raise AuthenticationError(status, str(e), PROVIDER) from e
+            raise BadRequestError(status, str(e), PROVIDER) from e
         except genai_errors.ServerError as e:
-            raise ServerError(e.code, str(e), PROVIDER) from e
+            raise ServerError(getattr(e, "code", 500), str(e), PROVIDER) from e
         except genai_errors.APIError as e:
-            raise LLMError(e.code, str(e), PROVIDER) from e
+            raise LLMError(getattr(e, "code", 500), str(e), PROVIDER) from e
+        except Exception as e:
+            if "timed out" in str(e).lower() or "timeout" in type(e).__name__.lower():
+                raise TimeoutError(408, str(e), PROVIDER) from e
+            raise
 
-        return self._to_completion_response(raw)
+        return self._to_completion_response(raw, model)
 
     async def embed(
         self,
@@ -112,25 +172,43 @@ class GoogleProvider(BaseProvider):
                 config=config,
             )
         except genai_errors.ClientError as e:
-            if e.code == 429:
+            status = getattr(e, "code", 400)
+            if status == 429:
                 raise RateLimitError(429, str(e), PROVIDER) from e
-            raise BadRequestError(e.code, str(e), PROVIDER) from e
+            if status in (401, 403):
+                raise AuthenticationError(status, str(e), PROVIDER) from e
+            raise BadRequestError(status, str(e), PROVIDER) from e
         except genai_errors.ServerError as e:
-            raise ServerError(e.code, str(e), PROVIDER) from e
+            raise ServerError(getattr(e, "code", 500), str(e), PROVIDER) from e
         except genai_errors.APIError as e:
-            raise LLMError(e.code, str(e), PROVIDER) from e
+            raise LLMError(getattr(e, "code", 500), str(e), PROVIDER) from e
 
-        return self._to_embedding_response(raw)
+        return self._to_embedding_response(raw, model)
+
+    # -- validation ------------------------------------------------------------
+
+    def _validate_messages(self, messages: list[ChatMessage]) -> None:
+        if not messages:
+            raise BadRequestError(400, "Messages list must not be empty.", PROVIDER)
+        has_non_system = any(m.get("role") != "system" for m in messages)
+        if not has_non_system:
+            raise BadRequestError(
+                400, "Messages must contain at least one non-system message.", PROVIDER
+            )
+        for m in messages:
+            if m.get("role") == "tool" and not m.get("tool_call_id"):
+                raise BadRequestError(
+                    400, "Tool messages must have a tool_call_id.", PROVIDER
+                )
+            if m.get("role") == "system" and not (m.get("content") or "").strip():
+                raise BadRequestError(
+                    400, "System messages must have non-empty content.", PROVIDER
+                )
 
     # -- helpers ---------------------------------------------------------------
 
-    def _convert_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Convert OpenAI-format messages to Gemini content format.
-
-        Gemini uses ``role="model"`` instead of ``role="assistant"`` and
-        does not have a ``system`` role in the contents array (system
-        instructions are passed separately via config).
-        """
+    def _convert_messages(self, messages: list[ChatMessage]) -> list[dict[str, Any]]:
+        """Convert OpenAI-format messages to Gemini content format."""
         contents: list[dict[str, Any]] = []
         for msg in messages:
             role = msg.get("role", "user")
@@ -148,21 +226,27 @@ class GoogleProvider(BaseProvider):
                     }
                 ]
             elif msg.get("tool_calls"):
-                parts = [
-                    {
-                        "function_call": {
-                            "name": tc["function"]["name"],
-                            "args": json.loads(tc["function"]["arguments"]),
+                raw_tcs = msg["tool_calls"]
+                parts = []
+                for tc in raw_tcs:
+                    tc_data = tc if isinstance(tc, dict) else tc.model_dump()
+                    func = tc_data.get("function", tc_data)
+                    parts.append(
+                        {
+                            "function_call": {
+                                "name": func.get("name", ""),
+                                "args": json.loads(func.get("arguments", "{}")),
+                            }
                         }
-                    }
-                    for tc in msg["tool_calls"]
-                ]
+                    )
             else:
-                parts = [{"text": msg.get("content", "") or ""}]
+                parts = [{"text": (msg.get("content") or "")}]
             contents.append({"role": role, "parts": parts})
         return contents
 
-    def _build_config(self, params: dict[str, Any], types: Any) -> Any:
+    def _build_config(
+        self, messages: list[ChatMessage], params: dict[str, Any], types: Any
+    ) -> Any:
         """Build a GenerateContentConfig from OpenAI-style params."""
         config_kwargs: dict[str, Any] = {}
 
@@ -184,9 +268,7 @@ class GoogleProvider(BaseProvider):
             config_kwargs["response_mime_type"] = "application/json"
             config_kwargs["response_schema"] = response_format.model_json_schema()
 
-        system_instructions = self._extract_system_instructions(
-            params.get("_original_messages", [])
-        )
+        system_instructions = self._extract_system_instructions(messages)
         if system_instructions:
             config_kwargs["system_instruction"] = system_instructions
 
@@ -206,20 +288,22 @@ class GoogleProvider(BaseProvider):
         )
 
     def _extract_system_instructions(
-        self, messages: list[dict[str, Any]]
-    ) -> str | None:
-        """Pull system messages out for use as system_instruction."""
-        parts = [m.get("content", "") for m in messages if m.get("role") == "system"]
-        return "\n".join(parts) if parts else None
+        self, messages: list[ChatMessage]
+    ) -> list[str] | None:
+        """Pull system messages out for use as system_instruction (list)."""
+        parts = [
+            m.get("content", "") or "" for m in messages if m.get("role") == "system"
+        ]
+        return parts if parts else None
 
-    def _to_completion_response(self, raw: Any) -> CompletionResponse:
+    def _to_completion_response(self, raw: Any, model: str) -> CompletionResponse:
         choices: list[Choice] = []
         if not raw.candidates:
-            return CompletionResponse(choices=[], model=None)
+            return CompletionResponse(choices=[], model=model)
 
         for i, candidate in enumerate(raw.candidates):
             content = None
-            tool_calls = None
+            tool_calls: list[ToolCall] | None = None
             finish_reason = "stop"
 
             if candidate.finish_reason:
@@ -234,23 +318,21 @@ class GoogleProvider(BaseProvider):
 
             if candidate.content and candidate.content.parts:
                 text_parts = []
-                fc_list = []
-                for part in candidate.content.parts:
+                fc_list: list[ToolCall] = []
+                for idx, part in enumerate(candidate.content.parts):
                     if part.text is not None:
                         text_parts.append(part.text)
                     elif part.function_call is not None:
                         fc = part.function_call
                         fc_list.append(
-                            {
-                                "id": f"call_{fc.name}",
-                                "type": "function",
-                                "function": {
-                                    "name": fc.name,
-                                    "arguments": json.dumps(fc.args)
-                                    if fc.args
-                                    else "{}",
-                                },
-                            }
+                            ToolCall(
+                                id=f"call_{idx}",
+                                type="function",
+                                function=ToolCallFunction(
+                                    name=fc.name,
+                                    arguments=json.dumps(fc.args) if fc.args else "{}",
+                                ),
+                            )
                         )
                 content = "\n".join(text_parts) if text_parts else None
                 if fc_list:
@@ -277,11 +359,11 @@ class GoogleProvider(BaseProvider):
                 total_tokens=raw.usage_metadata.total_token_count or 0,
             )
 
-        return CompletionResponse(choices=choices, model=None, usage=usage)
+        return CompletionResponse(choices=choices, model=model, usage=usage)
 
-    def _to_embedding_response(self, raw: Any) -> EmbeddingResponse:
+    def _to_embedding_response(self, raw: Any, model: str) -> EmbeddingResponse:
         data: list[EmbeddingData] = []
         if raw.embeddings:
             for i, emb in enumerate(raw.embeddings):
                 data.append(EmbeddingData(embedding=list(emb.values), index=i))
-        return EmbeddingResponse(data=data, model=None, usage=None)
+        return EmbeddingResponse(data=data, model=model, usage=None)

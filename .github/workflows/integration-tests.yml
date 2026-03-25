@@ -50,7 +50,7 @@ jobs:
           echo "::error::External contributors require a maintainer to add the 'safe for build' label."
           exit 1
 
-  test-functional:
+  test-agents-functional:
     needs: authorize
     runs-on: ubuntu-latest
     permissions:
@@ -61,11 +61,9 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
-        package: [giskard-core, giskard-agents, giskard-checks]
         provider: [google]
-    name: test-functional / ${{ matrix.package }} / ${{ matrix.provider }} / ${{ matrix.python-version }}
+    name: agents / ${{ matrix.provider }} / ${{ matrix.python-version }}
     env:
-      PACKAGE: ${{ matrix.package }}
       PROVIDER: ${{ matrix.provider }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -81,7 +79,72 @@ jobs:
         run: uv pip install "giskard-llm[$PROVIDER]"
       - name: Run functional tests
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TEST_MODEL: "gemini/gemini-2.0-flash"
-          TEST_EMBEDDING_MODEL: "gemini/gemini-embedding-001"
-        run: make test-functional PACKAGE=$PACKAGE PROVIDER=$PROVIDER
+          GOOGLE_API_KEY: ${{ matrix.provider == 'google' && secrets.GEMINI_API_KEY || '' }}
+          TEST_MODEL: "google/gemini-2.0-flash"
+          TEST_EMBEDDING_MODEL: "google/gemini-embedding-001"
+        run: make test-functional PACKAGE=giskard-agents PROVIDER=$PROVIDER
+
+  test-llm-functional:
+    needs: authorize
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+        provider: [openai, google, anthropic, azure, azure_ai]
+    name: llm / ${{ matrix.provider }} / ${{ matrix.python-version }}
+    env:
+      PROVIDER: ${{ matrix.provider }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - run: make install
+      - name: Install provider SDK
+        run: uv pip install "giskard-llm[$PROVIDER]"
+      - name: Run functional tests
+        env:
+          OPENAI_API_KEY: ${{ matrix.provider == 'openai' && secrets.OPENAI_API_KEY || '' }}
+          GOOGLE_API_KEY: ${{ matrix.provider == 'google' && secrets.GEMINI_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ matrix.provider == 'anthropic' && secrets.ANTHROPIC_API_KEY || '' }}
+          AZURE_API_KEY: ${{ matrix.provider == 'azure' && secrets.AZURE_API_KEY || '' }}
+          AZURE_API_BASE: ${{ matrix.provider == 'azure' && secrets.AZURE_API_BASE || '' }}
+          AZURE_API_VERSION: ${{ matrix.provider == 'azure' && secrets.AZURE_API_VERSION || '' }}
+          AZURE_AI_API_KEY: ${{ matrix.provider == 'azure_ai' && secrets.AZURE_AI_API_KEY || '' }}
+          AZURE_AI_ENDPOINT: ${{ matrix.provider == 'azure_ai' && secrets.AZURE_AI_ENDPOINT || '' }}
+        run: make test-functional PACKAGE=giskard-llm PROVIDER=$PROVIDER
+
+  test-checks-functional:
+    needs: authorize
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+        provider: [google]
+    name: checks / ${{ matrix.provider }} / ${{ matrix.python-version }}
+    env:
+      PROVIDER: ${{ matrix.provider }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - run: make install
+      - name: Install provider SDK
+        run: uv pip install "giskard-llm[$PROVIDER]"
+      - name: Run functional tests
+        env:
+          GOOGLE_API_KEY: ${{ matrix.provider == 'google' && secrets.GEMINI_API_KEY || '' }}
+          TEST_MODEL: "google/gemini-2.0-flash"
+          TEST_EMBEDDING_MODEL: "google/gemini-embedding-001"
+        run: make test-functional PACKAGE=giskard-checks PROVIDER=$PROVIDER

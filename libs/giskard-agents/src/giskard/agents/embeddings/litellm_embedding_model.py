@@ -9,7 +9,7 @@ from .base import BaseEmbeddingModel, EmbeddingParams
 class LitellmEmbeddingModel(BaseEmbeddingModel):
     """An embedding model backed by giskard-llm."""
 
-    model: str = Field(default="gemini/gemini-embedding-001")
+    model: str = Field(default="google/gemini-embedding-001")
 
     async def _embed(
         self, texts: list[str], params: EmbeddingParams | None = None

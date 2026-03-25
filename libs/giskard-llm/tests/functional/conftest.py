@@ -1,15 +1,15 @@
+"""Functional test configuration with auto-skip for missing SDKs."""
+
 import importlib
-import os
 
 import pytest
-from giskard.agents.embeddings import EmbeddingModel
-from giskard.agents.embeddings.base import EmbeddingParams
-from giskard.agents.generators import Generator
 
 _PROVIDER_PACKAGES = {
     "openai": "openai",
     "google": "google.genai",
     "anthropic": "anthropic",
+    "azure": "openai",
+    "azure_ai": "openai",
 }
 
 
@@ -35,18 +35,3 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
                             reason=f"Provider SDK '{package}' not installed"
                         )
                     )
-
-
-@pytest.fixture
-async def generator():
-    """Fixture providing a configured generator for tests."""
-    return Generator(model=os.getenv("TEST_MODEL", "google/gemini-2.0-flash"))
-
-
-@pytest.fixture
-def embedding_model():
-    """Fixture providing a configured embedding model for tests."""
-    return EmbeddingModel(
-        model=os.getenv("TEST_EMBEDDING_MODEL", "google/gemini-embedding-001"),
-        params=EmbeddingParams(dimensions=1536),
-    )

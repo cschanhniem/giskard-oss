@@ -1,4 +1,40 @@
-"""OpenAI provider -- uses the ``openai`` SDK directly."""
+"""OpenAI provider using the ``openai`` SDK.
+
+Routing prefix: ``openai/`` (also the default when no prefix is given)
+
+Authentication:
+    - Env: ``OPENAI_API_KEY`` (read by the SDK automatically)
+    - Kwargs: ``api_key``, ``base_url``, ``timeout``
+
+Role mapping:
+    All canonical roles (system, user, assistant, tool) are passed through
+    as-is — OpenAI supports them natively.
+
+Message constraints:
+    - Multiple system messages: supported natively
+    - System-only messages: raises ``BadRequestError``
+    - No strict alternation required
+
+Tool call format:
+    Tool definitions and results use the OpenAI format natively.
+
+Error mapping:
+    - ``openai.RateLimitError`` -> ``RateLimitError``
+    - ``openai.AuthenticationError`` -> ``AuthenticationError``
+    - ``openai.BadRequestError`` -> ``BadRequestError``
+    - ``openai.APITimeoutError`` -> ``TimeoutError``
+    - ``openai.InternalServerError`` -> ``ServerError``
+    - ``openai.APIError`` -> ``LLMError``
+
+Supported features:
+    - Completion: yes
+    - Embeddings: yes
+    - Structured output (response_format): yes (passed through to SDK)
+
+Provider-specific kwargs:
+    - ``base_url``: custom API endpoint
+    - ``timeout``: request timeout in seconds
+"""
 
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false, reportImplicitRelativeImport=false
 
@@ -14,12 +50,15 @@ from ..errors import (
     TimeoutError,
 )
 from ..types import (
+    ChatMessage,
     Choice,
     ChoiceMessage,
     CompletionResponse,
     EmbeddingData,
     EmbeddingResponse,
     EmbeddingUsage,
+    ToolCall,
+    ToolCallFunction,
     Usage,
 )
 from .base import BaseProvider
@@ -37,17 +76,31 @@ def _import_openai():
 
 
 class OpenAIProvider(BaseProvider):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        timeout: float | None = None,
+        **_kwargs: Any,
+    ) -> None:
         openai = _import_openai()
-        self._client = openai.AsyncOpenAI()
+        client_kwargs: dict[str, Any] = {}
+        if api_key is not None:
+            client_kwargs["api_key"] = api_key
+        if base_url is not None:
+            client_kwargs["base_url"] = base_url
+        if timeout is not None:
+            client_kwargs["timeout"] = timeout
+        self._client = openai.AsyncOpenAI(**client_kwargs)
 
     async def complete(
         self,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[ChatMessage],
         **params: Any,
     ) -> CompletionResponse:
         openai = _import_openai()
+        self._validate_messages(messages)
         kwargs = self._build_completion_kwargs(model, messages, params)
         try:
             raw = await self._client.chat.completions.create(**kwargs)
@@ -89,12 +142,32 @@ class OpenAIProvider(BaseProvider):
 
         return self._to_embedding_response(raw)
 
+    # -- validation ------------------------------------------------------------
+
+    def _validate_messages(self, messages: list[ChatMessage]) -> None:
+        if not messages:
+            raise BadRequestError(400, "Messages list must not be empty.", PROVIDER)
+        has_non_system = any(m.get("role") != "system" for m in messages)
+        if not has_non_system:
+            raise BadRequestError(
+                400, "Messages must contain at least one non-system message.", PROVIDER
+            )
+        for m in messages:
+            if m.get("role") == "tool" and not m.get("tool_call_id"):
+                raise BadRequestError(
+                    400, "Tool messages must have a tool_call_id.", PROVIDER
+                )
+            if m.get("role") == "system" and not (m.get("content") or "").strip():
+                raise BadRequestError(
+                    400, "System messages must have non-empty content.", PROVIDER
+                )
+
     # -- helpers ---------------------------------------------------------------
 
     def _build_completion_kwargs(
         self,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[ChatMessage],
         params: dict[str, Any],
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {"model": model, "messages": messages}
@@ -122,14 +195,14 @@ class OpenAIProvider(BaseProvider):
             tool_calls = None
             if c.message.tool_calls:
                 tool_calls = [
-                    {
-                        "id": tc.id,
-                        "type": tc.type,
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    }
+                    ToolCall(
+                        id=tc.id,
+                        type=tc.type,
+                        function=ToolCallFunction(
+                            name=tc.function.name,
+                            arguments=tc.function.arguments,
+                        ),
+                    )
                     for tc in c.message.tool_calls
                 ]
             choices.append(

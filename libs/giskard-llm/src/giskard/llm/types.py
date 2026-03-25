@@ -4,15 +4,26 @@ These mirror the OpenAI-style response shapes that litellm used,
 so existing code in giskard-agents can consume them with minimal changes.
 """
 
-from typing import Any
+from typing import Any, Required, TypedDict
 
 from pydantic import BaseModel, Field
+
+
+class ToolCallFunction(BaseModel):
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    id: str
+    type: str = "function"
+    function: ToolCallFunction
 
 
 class ChoiceMessage(BaseModel):
     role: str | None = None
     content: str | None = None
-    tool_calls: list[dict[str, Any]] | None = None
+    tool_calls: list[ToolCall] | None = None
 
     def model_dump(self, **kwargs: Any) -> dict[str, Any]:
         return super().model_dump(exclude_none=True, **kwargs)
@@ -50,3 +61,12 @@ class EmbeddingResponse(BaseModel):
     data: list[EmbeddingData] = Field(default_factory=list)
     model: str | None = None
     usage: EmbeddingUsage | None = None
+
+
+class ChatMessage(TypedDict, total=False):
+    """Canonical input message format (OpenAI-shaped)."""
+
+    role: Required[str]
+    content: str | None
+    tool_calls: list[ToolCall]
+    tool_call_id: str

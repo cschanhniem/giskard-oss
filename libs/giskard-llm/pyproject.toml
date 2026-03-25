@@ -14,6 +14,7 @@ dependencies = [
 openai = ["openai>=1.30,<3"]
 google = ["google-genai>=1.0,<2"]
 anthropic = ["anthropic>=0.40,<1"]
+azure = ["giskard-llm[openai]"]  # alias: azure/ and azure_ai/ use the openai SDK
 all = ["giskard-llm[openai,google,anthropic]"]
 
 [build-system]
@@ -23,6 +24,14 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "openai: tests requiring the openai SDK",
+    "google: tests requiring the google-genai SDK",
+    "anthropic: tests requiring the anthropic SDK",
+    "azure: tests requiring the openai SDK (Azure OpenAI)",
+    "azure_ai: tests requiring the openai SDK (Azure AI Foundry)",
+    "functional: functional tests making real API calls",
+]
 
 [tool.ruff.lint.isort.sections]
 "my_packages" = ["giskard"]

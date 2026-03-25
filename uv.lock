@@ -624,6 +624,9 @@ all = [
 anthropic = [
     { name = "anthropic" },
 ]
+azure = [
+    { name = "openai" },
+]
 google = [
     { name = "google-genai" },
 ]
@@ -634,12 +637,13 @@ openai = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.40,<1" },
+    { name = "giskard-llm", extras = ["openai"], marker = "extra == 'azure'", editable = "libs/giskard-llm" },
     { name = "giskard-llm", extras = ["openai", "google", "anthropic"], marker = "extra == 'all'", editable = "libs/giskard-llm" },
     { name = "google-genai", marker = "extra == 'google'", specifier = ">=1.0,<2" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.30,<3" },
     { name = "pydantic", specifier = ">=2.11.0,<3" },
 ]
-provides-extras = ["openai", "google", "anthropic", "all"]
+provides-extras = ["openai", "google", "anthropic", "azure", "all"]
 
 [[package]]
 name = "google-auth"
