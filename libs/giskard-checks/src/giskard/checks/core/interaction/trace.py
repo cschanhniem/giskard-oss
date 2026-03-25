@@ -1,11 +1,12 @@
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from pydantic import BaseModel, Field, computed_field
-from rich.console import Console, ConsoleOptions, RenderResult
-from rich.rule import Rule
 
 from ..protocols import InteractionGenerator
 from .interaction import Interaction
+
+if TYPE_CHECKING:
+    from rich.console import Console, ConsoleOptions, RenderResult
 
 
 class Trace[InputType, OutputType](BaseModel, frozen=True):
@@ -130,8 +131,10 @@ class Trace[InputType, OutputType](BaseModel, frozen=True):
     # TODO def steps() -> list[list[Interaction[InputType, OutputType]]]: # Index based
 
     def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ) -> RenderResult:
+        self, console: "Console", options: "ConsoleOptions"
+    ) -> "RenderResult":
+        from rich.rule import Rule
+
         for idx, interaction in enumerate(self.interactions):
             yield Rule(f"Interaction {idx + 1}", style="bold")
             yield from interaction.__rich_console__(console, options)

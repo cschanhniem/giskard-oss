@@ -1,7 +1,9 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
-from rich.console import Console, ConsoleOptions, RenderResult
+
+if TYPE_CHECKING:
+    from rich.console import Console, ConsoleOptions, RenderResult
 
 
 class Interaction[InputType, OutputType](BaseModel, frozen=True):
@@ -37,7 +39,7 @@ class Interaction[InputType, OutputType](BaseModel, frozen=True):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ) -> RenderResult:
+        self, console: "Console", options: "ConsoleOptions"
+    ) -> "RenderResult":
         yield "Inputs: " + repr(self.inputs)
         yield "Outputs: " + repr(self.outputs)

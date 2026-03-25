@@ -697,6 +697,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-timeout" },
+    { name = "rich" },
 ]
 
 [package.metadata]
@@ -715,6 +716,7 @@ dev = [
     { name = "pytest-asyncio", specifier = "==1.3.0" },
     { name = "pytest-cov", specifier = ">=6.1,<8" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
+    { name = "rich", specifier = ">=14.2.0,<15" },
 ]
 
 [[package]]
@@ -757,6 +759,10 @@ dependencies = [
     { name = "jsonpath-ng" },
     { name = "numpy" },
     { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+rich = [
     { name = "rich" },
 ]
 
@@ -768,8 +774,9 @@ requires-dist = [
     { name = "jsonpath-ng", specifier = ">=1.7.0,<2" },
     { name = "numpy", specifier = ">=2.4.1,<3" },
     { name = "pydantic", specifier = ">=2.12,<3" },
-    { name = "rich", specifier = ">=14.2.0,<15" },
+    { name = "rich", marker = "extra == 'rich'", specifier = ">=14.2.0,<15" },
 ]
+provides-extras = ["rich"]
 
 [[package]]
 name = "giskard-core"

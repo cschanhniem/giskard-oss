@@ -1,13 +1,13 @@
 from enum import Enum
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
-from rich.console import Console, ConsoleOptions, RenderResult
-from rich.panel import Panel
-from rich.rule import Rule
 
 from .interaction import Trace
 from .protocols import RichConsoleProtocol, RichProtocol
+
+if TYPE_CHECKING:
+    from rich.console import Console, ConsoleOptions, RenderResult
 
 STATUS_MAPPING = {
     "total": {
@@ -74,9 +74,19 @@ class Metric(BaseModel):
 
 
 class BaseResult(BaseModel, frozen=True):
-    def print_report(self, console: Console | None = None) -> None:
+    def print_report(self, console: "Console | None" = None) -> None:
         """Format the result as a report."""
-        console = console or Console()
+        try:
+            import rich
+        except ImportError:
+            print(self.model_dump_json(indent=2))
+            print()
+            print(
+                'Rich is not installed; using JSON. Install the optional extra: pip install "giskard-checks[rich]"'
+            )
+            return
+
+        console = console or rich.get_console()
         console.print(self)
 
 
@@ -193,8 +203,8 @@ class CheckResult(BaseResult, frozen=True):
         return self.status == CheckStatus.SKIP
 
     def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ) -> RenderResult:
+        self, console: "Console", options: "ConsoleOptions"
+    ) -> "RenderResult":
         status = STATUS_MAPPING[self.status]
 
         name = self.details.get("check_name", "[dim italic]Unnamed check[/dim italic]")
@@ -294,8 +304,10 @@ class ScenarioResult[InputType, OutputType](BaseResult, frozen=True):
         return [step for step in self.steps if step.failed or step.errored]
 
     def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ) -> RenderResult:
+        self, console: "Console", options: "ConsoleOptions"
+    ) -> "RenderResult":
+        from rich.rule import Rule
+
         status = STATUS_MAPPING[self.status]
         yield Rule(status["title"], style=f"{status['color']} bold")
 
@@ -435,8 +447,10 @@ class TestCaseResult(BaseResult, frozen=True):
             raise AssertionError(error_msg)
 
     def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ) -> RenderResult:
+        self, console: "Console", options: "ConsoleOptions"
+    ) -> "RenderResult":
+        from rich.rule import Rule
+
         status = STATUS_MAPPING[self.status]
         yield Rule(status["title"], style=f"{status['color']} bold")
 
@@ -537,8 +551,11 @@ class SuiteResult(BaseResult, frozen=True):
         return [r for r in self.results if r.failed or r.errored]
 
     def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ) -> RenderResult:
+        self, console: "Console", options: "ConsoleOptions"
+    ) -> "RenderResult":
+        from rich.panel import Panel
+        from rich.rule import Rule
+
         yield Rule("Suite Results", style="bold blue")
 
         # Dots view

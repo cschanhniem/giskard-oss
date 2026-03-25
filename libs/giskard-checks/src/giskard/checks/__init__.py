@@ -50,16 +50,19 @@ from .settings import get_default_generator, set_default_generator
 from .testing import WithSpy
 from .testing.runner import TestCaseRunner
 
-# Install rich.pretty for better REPL output (including Pydantic models)
+# Install rich.pretty for better REPL output (including Pydantic models) when rich is installed.
 # Can be disabled by setting GISKARD_CHECKS_DISABLE_RICH_PRETTY=1
 if os.getenv("GISKARD_CHECKS_DISABLE_RICH_PRETTY", "").lower() not in (
     "1",
     "true",
     "yes",
 ):
-    from rich.pretty import install
+    try:
+        from rich.pretty import install
 
-    install()
+        install()
+    except ImportError:
+        pass
 
 add_prompts_path(str(Path(__file__).parent / "prompts"), "giskard.checks")
 

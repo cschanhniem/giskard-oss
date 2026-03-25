@@ -54,6 +54,7 @@ markers = [
 
 [dependency-groups]
 dev = [
+    "rich>=14.2.0,<15",
     "ipykernel==7.2.0",
     "pip-audit==2.10.0",
     "pylint-pydantic==0.4.1",
