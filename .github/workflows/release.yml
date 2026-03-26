@@ -45,6 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     env:
       PACKAGE: ${{ github.event.inputs.package }}
       BUMP_TYPE: ${{ github.event.inputs.bump_type }}
@@ -153,7 +154,4 @@ jobs:
       - name: Push to PyPI
         if: ${{ github.event.inputs.dry_run == 'false' }}
         working-directory: libs/${{ env.PACKAGE }}
-        env:
-          PIPY_USERNAME: ${{ secrets.PIPY_USERNAME }}
-          PIPY_PASSWORD: ${{ secrets.PIPY_PASSWORD }}
-        run: uv publish --username "$PIPY_USERNAME" --password "$PIPY_PASSWORD"
+        run: uv publish
