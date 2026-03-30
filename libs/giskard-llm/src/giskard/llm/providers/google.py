@@ -24,7 +24,7 @@ Tool call format:
       doesn't provide them
 
 Error mapping:
-    - ``google.genai.errors.ClientError`` (401/403) -> ``AuthenticationError``
+    - ``google.genai.errors.ClientError`` (401/403 or API_KEY_INVALID) -> ``AuthenticationError``
     - ``google.genai.errors.ClientError`` (429) -> ``RateLimitError``
     - ``google.genai.errors.ClientError`` (other) -> ``BadRequestError``
     - ``google.genai.errors.ServerError`` -> ``ServerError``
@@ -134,12 +134,7 @@ class GoogleProvider(BaseProvider):
                 config=config,
             )
         except genai_errors.ClientError as e:
-            status = getattr(e, "code", 400)
-            if status == 429:
-                raise RateLimitError(429, str(e), PROVIDER) from e
-            if status in (401, 403):
-                raise AuthenticationError(status, str(e), PROVIDER) from e
-            raise BadRequestError(status, str(e), PROVIDER) from e
+            raise self._map_client_error(e) from e
         except genai_errors.ServerError as e:
             raise ServerError(getattr(e, "code", 500), str(e), PROVIDER) from e
         except genai_errors.APIError as e:
@@ -173,18 +168,24 @@ class GoogleProvider(BaseProvider):
                 config=config,
             )
         except genai_errors.ClientError as e:
-            status = getattr(e, "code", 400)
-            if status == 429:
-                raise RateLimitError(429, str(e), PROVIDER) from e
-            if status in (401, 403):
-                raise AuthenticationError(status, str(e), PROVIDER) from e
-            raise BadRequestError(status, str(e), PROVIDER) from e
+            raise self._map_client_error(e) from e
         except genai_errors.ServerError as e:
             raise ServerError(getattr(e, "code", 500), str(e), PROVIDER) from e
         except genai_errors.APIError as e:
             raise LLMError(getattr(e, "code", 500), str(e), PROVIDER) from e
 
         return self._to_embedding_response(raw, model)
+
+    # -- error mapping ---------------------------------------------------------
+
+    def _map_client_error(self, e: Any) -> LLMError:
+        """Map a ``genai.errors.ClientError`` to the appropriate giskard error."""
+        status = getattr(e, "code", 400)
+        if status == 429:
+            return RateLimitError(429, str(e), PROVIDER)
+        if status in (401, 403) or "API_KEY_INVALID" in str(e):
+            return AuthenticationError(status, str(e), PROVIDER)
+        return BadRequestError(status, str(e), PROVIDER)
 
     # -- validation ------------------------------------------------------------
 

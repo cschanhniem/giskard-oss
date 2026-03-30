@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from giskard import agents
 from giskard.agents.chat import Chat
-from giskard.agents.generators.litellm_generator import LiteLLMGenerator
+from giskard.agents.generators.giskard_llm_generator import GiskardLLMGenerator
 from giskard.agents.templates.prompts_manager import PromptsManager
 from pydantic import BaseModel
 
@@ -90,7 +90,7 @@ async def test_stream_batch(generator):
 
 @pytest.mark.google
 @pytest.mark.functional
-async def test_workflow_with_mixed_templates(generator: LiteLLMGenerator):
+async def test_workflow_with_mixed_templates(generator: GiskardLLMGenerator):
     workflow = agents.ChatWorkflow(
         generator=generator,
         prompt_manager=PromptsManager(

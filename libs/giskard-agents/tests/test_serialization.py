@@ -10,8 +10,8 @@ from giskard.agents.generators import (
     Generator,
 )
 from giskard.agents.generators.base import Response
-from giskard.agents.generators.litellm_generator import (
-    LiteLLMGenerator,
+from giskard.agents.generators.giskard_llm_generator import (
+    GiskardLLMGenerator,
 )
 from giskard.agents.generators.middleware import RetryPolicy
 from giskard.agents.templates import MessageTemplate
@@ -39,7 +39,7 @@ def test_generator_serialization():
     deserialized = BaseGenerator.model_validate_json(serialized)
 
     assert isinstance(deserialized, Generator)
-    assert isinstance(deserialized, LiteLLMGenerator)
+    assert isinstance(deserialized, GiskardLLMGenerator)
     assert deserialized.model == "test-model"
 
     assert deserialized.retry_policy is not None
@@ -116,7 +116,7 @@ def test_chat_workflow_serialization():
     deserialized = ChatWorkflow.model_validate_json(serialized)
 
     assert isinstance(deserialized.generator, Generator)
-    assert isinstance(deserialized.generator, LiteLLMGenerator)
+    assert isinstance(deserialized.generator, GiskardLLMGenerator)
     assert deserialized.generator.model == "test-model"
 
     assert deserialized.generator.retry_policy is not None

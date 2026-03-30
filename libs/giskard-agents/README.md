@@ -74,7 +74,7 @@ Generators have built-in support for retries and rate limiting via dedicated fie
 
 ### Retries
 
-By default, `LiteLLMGenerator` retries failed requests with exponential backoff using LiteLLM's retry-eligibility logic. You can customize the retry policy:
+By default, `GiskardLLMGenerator` retries failed requests with exponential backoff. You can customize the retry policy:
 
 ```python
 from giskard.agents.generators.middleware import RetryPolicy

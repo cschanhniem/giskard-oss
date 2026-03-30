@@ -41,6 +41,8 @@ Provider-specific kwargs:
 from collections.abc import Sequence
 from typing import Any
 
+from pydantic import BaseModel
+
 from ..errors import (
     AuthenticationError,
     BadRequestError,
@@ -186,6 +188,17 @@ class OpenAIProvider(BaseProvider):
 
         response_format = params.get("response_format")
         if response_format is not None:
+            if isinstance(response_format, type) and issubclass(
+                response_format, BaseModel
+            ):
+                response_format = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": response_format.__name__,
+                        "strict": True,
+                        "schema": response_format.model_json_schema(),
+                    },
+                }
             kwargs["response_format"] = response_format
 
         return kwargs

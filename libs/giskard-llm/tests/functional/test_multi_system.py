@@ -53,7 +53,7 @@ async def test_anthropic_multi_system_raises_default():
         provider="anthropic",
         api_key="os.environ/ANTHROPIC_API_KEY",  # pragma: allowlist secret
     )
-    model = os.getenv("TEST_ANTHROPIC_MODEL", "anthropic/claude-3-5-haiku-latest")
+    model = os.getenv("TEST_ANTHROPIC_MODEL", "anthropic/claude-haiku-4-5-20251001")
     with pytest.raises(BadRequestError, match="multiple system"):
         await client.acompletion(model, _MULTI_SYSTEM_MESSAGES)
 

@@ -1,6 +1,6 @@
 from ._types import FinishReason
 from .base import BaseGenerator, GenerationParams, Response
-from .litellm_generator import LiteLLMGenerator, LiteLLMRetryMiddleware
+from .giskard_llm_generator import GiskardLLMGenerator, GiskardLLMRetryMiddleware
 from .middleware import (
     CompletionMiddleware,
     RateLimiterMiddleware,
@@ -8,8 +8,11 @@ from .middleware import (
     RetryPolicy,
 )
 
-# Default generator uses LiteLLM
-Generator = LiteLLMGenerator
+Generator = GiskardLLMGenerator
+
+# Deprecated aliases — kept for backward compatibility
+LiteLLMGenerator = GiskardLLMGenerator
+LiteLLMRetryMiddleware = GiskardLLMRetryMiddleware
 
 __all__ = [
     "FinishReason",
@@ -17,10 +20,12 @@ __all__ = [
     "GenerationParams",
     "Response",
     "BaseGenerator",
+    "GiskardLLMGenerator",
+    "GiskardLLMRetryMiddleware",
     "LiteLLMGenerator",
+    "LiteLLMRetryMiddleware",
     "CompletionMiddleware",
     "RetryMiddleware",
     "RetryPolicy",
     "RateLimiterMiddleware",
-    "LiteLLMRetryMiddleware",
 ]
