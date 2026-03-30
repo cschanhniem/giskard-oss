@@ -1,6 +1,7 @@
 from typing import Any, cast, override
 
 from giskard.llm import CompletionResponse, acompletion, should_retry
+from giskard.llm.types import ChatMessage
 from pydantic import Field
 
 from ..chat import Message
@@ -48,12 +49,15 @@ class LiteLLMGenerator(BaseGenerator):
             for t in tools
         ]
 
-    def _serialize_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
+    def _serialize_messages(self, messages: list[Message]) -> list[ChatMessage]:
         """Convert ``Message`` objects to the wire dict format."""
-        return [
-            m.model_dump(include={"role", "content", "tool_calls", "tool_call_id"})
-            for m in messages
-        ]
+        return cast(
+            list[ChatMessage],
+            [
+                m.model_dump(include={"role", "content", "tool_calls", "tool_call_id"})
+                for m in messages
+            ],
+        )
 
     def _deserialize_response(self, raw: Any) -> Message:
         """Convert a response message object into an internal ``Message``."""
