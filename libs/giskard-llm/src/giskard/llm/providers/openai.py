@@ -191,12 +191,14 @@ class OpenAIProvider(BaseProvider):
             if isinstance(response_format, type) and issubclass(
                 response_format, BaseModel
             ):
+                schema = response_format.model_json_schema()
+                schema["additionalProperties"] = False
                 response_format = {
                     "type": "json_schema",
                     "json_schema": {
                         "name": response_format.__name__,
                         "strict": True,
-                        "schema": response_format.model_json_schema(),
+                        "schema": schema,
                     },
                 }
             kwargs["response_format"] = response_format

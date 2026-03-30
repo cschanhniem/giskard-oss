@@ -12,7 +12,7 @@ pytestmark = pytest.mark.functional
 
 _EMBEDDING_MODELS = {
     "openai": os.getenv("TEST_OPENAI_EMBEDDING_MODEL", "openai/text-embedding-3-small"),
-    "google": os.getenv("TEST_GOOGLE_EMBEDDING_MODEL", "google/text-embedding-004"),
+    "google": os.getenv("TEST_GOOGLE_EMBEDDING_MODEL", "google/gemini-embedding-001"),
     "azure": os.getenv("TEST_AZURE_EMBEDDING_MODEL", "azure/text-embedding-3-small"),
     "azure_ai": os.getenv(
         "TEST_AZURE_AI_EMBEDDING_MODEL", "azure_ai/text-embedding-3-small"
