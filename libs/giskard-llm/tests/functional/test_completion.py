@@ -17,11 +17,11 @@ pytestmark = pytest.mark.functional
 # -- Provider parametrization -------------------------------------------------
 
 _MODELS = {
-    "openai": os.getenv("TEST_OPENAI_MODEL", "openai/gpt-4o-mini"),
+    "openai": os.getenv("TEST_OPENAI_MODEL", "openai/gpt-4.1-nano"),
     "google": os.getenv("TEST_GOOGLE_MODEL", "google/gemini-2.0-flash"),
     "anthropic": os.getenv("TEST_ANTHROPIC_MODEL", "anthropic/claude-3-5-haiku-latest"),
-    "azure": os.getenv("TEST_AZURE_MODEL", "azure/gpt-4o-mini"),
-    "azure_ai": os.getenv("TEST_AZURE_AI_MODEL", "azure_ai/gpt-4o-mini"),
+    "azure": os.getenv("TEST_AZURE_MODEL", "azure/gpt-4.1-nano"),
+    "azure_ai": os.getenv("TEST_AZURE_AI_MODEL", "azure_ai/gpt-4.1-nano"),
 }
 
 _CONFIGURE_PARAMS = {  # pragma: allowlist secret
@@ -178,6 +178,7 @@ async def test_tool_result_loop(provider: str):
         [{"role": "user", "content": "What is 2+2? Use the add tool."}],
         tools=[ADD_TOOL],
     )
+    assert resp1.choices[0].message.tool_calls is not None
     tc = resp1.choices[0].message.tool_calls[0]
 
     resp2 = await client.acompletion(
@@ -187,7 +188,7 @@ async def test_tool_result_loop(provider: str):
             {
                 "role": "assistant",
                 "content": resp1.choices[0].message.content,
-                "tool_calls": [tc.model_dump()],
+                "tool_calls": [tc.model_dump()],  # pyright: ignore[reportArgumentType]  # SDK expects serialized dicts
             },
             {"role": "tool", "tool_call_id": tc.id, "content": "4"},
         ],

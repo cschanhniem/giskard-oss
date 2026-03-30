@@ -28,7 +28,7 @@ Provider-specific kwargs:
     - ``base_url``: Azure AI Foundry endpoint URL
 """
 
-# pyright: reportMissingImports=false, reportAttributeAccessIssue=false, reportImplicitRelativeImport=false
+# pyright: reportMissingImports=false, reportAttributeAccessIssue=false, reportImplicitRelativeImport=false, reportMissingSuperCall=false
 
 import os
 from typing import Any

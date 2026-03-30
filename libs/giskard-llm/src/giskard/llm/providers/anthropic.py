@@ -46,6 +46,7 @@ Provider-specific kwargs (configure-time):
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false, reportImplicitRelativeImport=false
 
 import json
+from collections.abc import Sequence
 from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel
@@ -132,7 +133,7 @@ class AnthropicProvider(BaseProvider):
     async def complete(
         self,
         model: str,
-        messages: list[ChatMessage],
+        messages: Sequence[ChatMessage],
         **params: Any,
     ) -> CompletionResponse:
         anthropic = _import_anthropic()
@@ -171,7 +172,7 @@ class AnthropicProvider(BaseProvider):
 
     # -- validation ------------------------------------------------------------
 
-    def _validate_messages(self, messages: list[ChatMessage]) -> None:
+    def _validate_messages(self, messages: Sequence[ChatMessage]) -> None:
         if not messages:
             raise BadRequestError(400, "Messages list must not be empty.", PROVIDER)
 
@@ -217,7 +218,7 @@ class AnthropicProvider(BaseProvider):
     def _build_completion_kwargs(
         self,
         model: str,
-        messages: list[ChatMessage],
+        messages: Sequence[ChatMessage],
         params: dict[str, Any],
     ) -> dict[str, Any]:
         system_parts, user_messages = self._split_system_messages(messages)
@@ -259,7 +260,7 @@ class AnthropicProvider(BaseProvider):
         return kwargs
 
     def _split_system_messages(
-        self, messages: list[ChatMessage]
+        self, messages: Sequence[ChatMessage]
     ) -> tuple[list[str], list[ChatMessage]]:
         system: list[str] = []
         rest: list[ChatMessage] = []
@@ -270,7 +271,9 @@ class AnthropicProvider(BaseProvider):
                 rest.append(m)
         return system, rest
 
-    def _convert_messages(self, messages: list[ChatMessage]) -> list[_AnthropicMessage]:
+    def _convert_messages(
+        self, messages: Sequence[ChatMessage]
+    ) -> list[_AnthropicMessage]:
         """Convert OpenAI-format messages to Anthropic format."""
         result: list[_AnthropicMessage] = []
         for msg in messages:
@@ -286,8 +289,8 @@ class AnthropicProvider(BaseProvider):
             elif role == "assistant" and msg.get("tool_calls"):
                 content: list[_ToolUseContent | _TextContent] = []
                 if msg.get("content"):
-                    content.append({"type": "text", "text": msg["content"]})
-                for tc in msg["tool_calls"]:
+                    content.append({"type": "text", "text": msg.get("content") or ""})
+                for tc in msg.get("tool_calls", []):
                     tc_func = tc if isinstance(tc, dict) else tc.model_dump()
                     func = tc_func.get("function", tc_func)
                     content.append(
@@ -298,7 +301,7 @@ class AnthropicProvider(BaseProvider):
                             "input": json.loads(func.get("arguments", "{}")),
                         }
                     )
-                result.append({"role": "assistant", "content": content})
+                result.append({"role": "assistant", "content": content})  # pyright: ignore[reportArgumentType]
             else:
                 result.append(
                     {

@@ -2,6 +2,7 @@
 
 import importlib
 import os
+from collections.abc import Sequence
 from typing import Any
 
 from .providers.base import BaseProvider
@@ -117,7 +118,7 @@ class LLMClient:
     async def acompletion(
         self,
         model: str,
-        messages: list[ChatMessage],
+        messages: Sequence[ChatMessage],
         **params: Any,
     ) -> CompletionResponse:
         """Parse model string and dispatch to the right provider."""
@@ -142,7 +143,7 @@ _default_client = LLMClient()
 
 async def route_completion(
     model: str,
-    messages: list[ChatMessage],
+    messages: Sequence[ChatMessage],
     **params: Any,
 ) -> CompletionResponse:
     """Module-level convenience wrapper around the default client."""

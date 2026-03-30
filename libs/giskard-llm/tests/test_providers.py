@@ -142,7 +142,7 @@ async def test_openai_rate_limit_error(mock_import):
 async def test_openai_embedding(mock_import):
     mock_import.return_value = MagicMock()
     provider = _make_openai_provider()
-    provider._client.embeddings = MagicMock()
+    provider._client.embeddings = MagicMock()  # pyright: ignore[reportAttributeAccessIssue]
     provider._client.embeddings.create = AsyncMock(
         return_value=_make_openai_embedding_response([[0.1, 0.2], [0.3, 0.4]])
     )

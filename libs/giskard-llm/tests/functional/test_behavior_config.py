@@ -3,7 +3,7 @@
 import os
 
 import pytest
-from giskard.llm import LLMClient
+from giskard.llm import ChatMessage, LLMClient
 from giskard.llm.errors import BadRequestError
 
 pytestmark = [pytest.mark.functional, pytest.mark.anthropic]
@@ -66,7 +66,7 @@ async def test_both_aliases_coexist():
         merge_system=True,
     )
 
-    messages = [
+    messages: list[ChatMessage] = [
         {"role": "system", "content": "A"},
         {"role": "system", "content": "B"},
         {"role": "user", "content": "Hi"},

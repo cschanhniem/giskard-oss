@@ -3,13 +3,13 @@
 import os
 
 import pytest
-from giskard.llm import LLMClient
+from giskard.llm import ChatMessage, LLMClient
 from giskard.llm.errors import BadRequestError
 
 pytestmark = pytest.mark.functional
 
 
-_MULTI_SYSTEM_MESSAGES = [
+_MULTI_SYSTEM_MESSAGES: list[ChatMessage] = [
     {"role": "system", "content": "Always include the word PINEAPPLE."},
     {"role": "system", "content": "Always include the word MANGO."},
     {"role": "user", "content": "Tell me something."},
@@ -25,7 +25,7 @@ async def test_openai_multi_system_works():
         provider="openai",
         api_key="os.environ/OPENAI_API_KEY",  # pragma: allowlist secret
     )
-    model = os.getenv("TEST_OPENAI_MODEL", "openai/gpt-4o-mini")
+    model = os.getenv("TEST_OPENAI_MODEL", "openai/gpt-4.1-nano")
     resp = await client.acompletion(model, _MULTI_SYSTEM_MESSAGES)
     assert resp.choices[0].message.content
 
@@ -69,7 +69,7 @@ async def test_azure_multi_system_works():
         base_url="os.environ/AZURE_API_BASE",
         api_version="os.environ/AZURE_API_VERSION",
     )
-    model = os.getenv("TEST_AZURE_MODEL", "azure/gpt-4o-mini")
+    model = os.getenv("TEST_AZURE_MODEL", "azure/gpt-4.1-nano")
     resp = await client.acompletion(model, _MULTI_SYSTEM_MESSAGES)
     assert resp.choices[0].message.content
 
@@ -84,6 +84,6 @@ async def test_azure_ai_multi_system_works():
         api_key="os.environ/AZURE_AI_API_KEY",  # pragma: allowlist secret
         base_url="os.environ/AZURE_AI_ENDPOINT",
     )
-    model = os.getenv("TEST_AZURE_AI_MODEL", "azure_ai/gpt-4o-mini")
+    model = os.getenv("TEST_AZURE_AI_MODEL", "azure_ai/gpt-4.1-nano")
     resp = await client.acompletion(model, _MULTI_SYSTEM_MESSAGES)
     assert resp.choices[0].message.content

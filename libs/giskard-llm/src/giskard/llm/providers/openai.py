@@ -38,6 +38,7 @@ Provider-specific kwargs:
 
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false, reportImplicitRelativeImport=false
 
+from collections.abc import Sequence
 from typing import Any
 
 from ..errors import (
@@ -96,7 +97,7 @@ class OpenAIProvider(BaseProvider):
     async def complete(
         self,
         model: str,
-        messages: list[ChatMessage],
+        messages: Sequence[ChatMessage],
         **params: Any,
     ) -> CompletionResponse:
         openai = _import_openai()
@@ -144,7 +145,7 @@ class OpenAIProvider(BaseProvider):
 
     # -- validation ------------------------------------------------------------
 
-    def _validate_messages(self, messages: list[ChatMessage]) -> None:
+    def _validate_messages(self, messages: Sequence[ChatMessage]) -> None:
         if not messages:
             raise BadRequestError(400, "Messages list must not be empty.", PROVIDER)
         has_non_system = any(m.get("role") != "system" for m in messages)
@@ -167,7 +168,7 @@ class OpenAIProvider(BaseProvider):
     def _build_completion_kwargs(
         self,
         model: str,
-        messages: list[ChatMessage],
+        messages: Sequence[ChatMessage],
         params: dict[str, Any],
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {"model": model, "messages": messages}

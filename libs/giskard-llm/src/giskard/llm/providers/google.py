@@ -43,6 +43,7 @@ Provider-specific kwargs:
 
 import json
 import os
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel
@@ -116,7 +117,7 @@ class GoogleProvider(BaseProvider):
     async def complete(
         self,
         model: str,
-        messages: list[ChatMessage],
+        messages: Sequence[ChatMessage],
         **params: Any,
     ) -> CompletionResponse:
         genai_errors = _import_genai_errors()
@@ -187,7 +188,7 @@ class GoogleProvider(BaseProvider):
 
     # -- validation ------------------------------------------------------------
 
-    def _validate_messages(self, messages: list[ChatMessage]) -> None:
+    def _validate_messages(self, messages: Sequence[ChatMessage]) -> None:
         if not messages:
             raise BadRequestError(400, "Messages list must not be empty.", PROVIDER)
         has_non_system = any(m.get("role") != "system" for m in messages)
@@ -207,7 +208,9 @@ class GoogleProvider(BaseProvider):
 
     # -- helpers ---------------------------------------------------------------
 
-    def _convert_messages(self, messages: list[ChatMessage]) -> list[dict[str, Any]]:
+    def _convert_messages(
+        self, messages: Sequence[ChatMessage]
+    ) -> list[dict[str, Any]]:
         """Convert OpenAI-format messages to Gemini content format."""
         contents: list[dict[str, Any]] = []
         for msg in messages:
@@ -226,7 +229,7 @@ class GoogleProvider(BaseProvider):
                     }
                 ]
             elif msg.get("tool_calls"):
-                raw_tcs = msg["tool_calls"]
+                raw_tcs = msg.get("tool_calls", [])
                 parts = []
                 for tc in raw_tcs:
                     tc_data = tc if isinstance(tc, dict) else tc.model_dump()
@@ -245,7 +248,7 @@ class GoogleProvider(BaseProvider):
         return contents
 
     def _build_config(
-        self, messages: list[ChatMessage], params: dict[str, Any], types: Any
+        self, messages: Sequence[ChatMessage], params: dict[str, Any], types: Any
     ) -> Any:
         """Build a GenerateContentConfig from OpenAI-style params."""
         config_kwargs: dict[str, Any] = {}
@@ -288,7 +291,7 @@ class GoogleProvider(BaseProvider):
         )
 
     def _extract_system_instructions(
-        self, messages: list[ChatMessage]
+        self, messages: Sequence[ChatMessage]
     ) -> list[str] | None:
         """Pull system messages out for use as system_instruction (list)."""
         parts = [
