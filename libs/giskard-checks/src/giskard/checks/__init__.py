@@ -40,6 +40,7 @@ from .generators.user import UserSimulator
 from .judges import (
     BaseLLMCheck,
     Conformity,
+    Correctness,
     Groundedness,
     LLMCheckResult,
     LLMJudge,
@@ -88,6 +89,7 @@ __all__ = [
     "BaseLLMCheck",
     "LLMCheckResult",
     "Conformity",
+    "Correctness",
     "Equals",
     "NotEquals",
     "LesserThan",
