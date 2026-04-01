@@ -1,4 +1,5 @@
 name: Release
+
 on:
   workflow_dispatch:
     inputs:
@@ -36,15 +37,20 @@ on:
         type: boolean
         default: true
 
+permissions: {}
+
 concurrency:
   group: release-${{ github.event.inputs.package }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   release:
+    name: release
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # push commits, tags, and create releases
+      id-token: write # PyPI trusted publishing (OIDC)
+    environment: release
     env:
       PACKAGE: ${{ github.event.inputs.package }}
       BUMP_TYPE: ${{ github.event.inputs.bump_type }}
@@ -60,16 +66,24 @@ jobs:
             exit 1
           fi
 
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ secrets.RELEASE_PAT_TOKEN }} # Needed to trigger other actions
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
+          enable-cache: false
           python-version: "3.12"
 
       - name: Setup development environment
@@ -127,33 +141,39 @@ jobs:
 
       - name: Push to main
         if: ${{ github.event.inputs.dry_run == 'false' && github.ref_name == 'main' }}
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
         run: |
+          git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPO}.git"
           git push origin main
 
       - name: Create tag
         if: ${{ github.event.inputs.dry_run == 'false' }}
         env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
           TAG: ${{ steps.bump.outputs.tag }}
         run: |
+          git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPO}.git"
           git tag "$TAG"
           git push origin "$TAG"
 
 
       - name: Create GitHub Release
         if: ${{ github.event.inputs.dry_run == 'false' }}
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
-        with:
-          tag_name: ${{ steps.bump.outputs.tag }}
-          name: "${{ env.PACKAGE }} v${{ steps.bump.outputs.new_version }}"
-          generate_release_notes: true
-          files: |
-            libs/${{ env.PACKAGE }}/dist/*.tar.gz
-            libs/${{ env.PACKAGE }}/dist/*.whl
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.bump.outputs.tag }}
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+        run: |
+          gh release create "$TAG" \
+            --title "$PACKAGE v$NEW_VERSION" \
+            --generate-notes \
+            libs/"$PACKAGE"/dist/*.tar.gz \
+            libs/"$PACKAGE"/dist/*.whl
 
       - name: Push to PyPI
         if: ${{ github.event.inputs.dry_run == 'false' }}
         working-directory: libs/${{ env.PACKAGE }}
-        env:
-          PIPY_USERNAME: ${{ secrets.PIPY_USERNAME }}
-          PIPY_PASSWORD: ${{ secrets.PIPY_PASSWORD }}
-        run: uv publish --username "$PIPY_USERNAME" --password "$PIPY_PASSWORD"
+        run: uv publish
