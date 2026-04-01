@@ -1,177 +1,205 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-from ..core.result import CheckResult, ScenarioResult, SuiteResult, TestCaseResult
+from ..core.result import CheckResult, ScenarioResult, SuiteResult
 
 
 def _seconds(duration_ms: int) -> str:
-    return f"{duration_ms / 1000:.3f}"
+    return f"{duration_ms / 1000:.6f}"
 
 
-def _check_label(result: CheckResult, check_index: int) -> str:
-    label = result.details.get("check_name") or result.details.get("check_kind")
-    return str(label) if label else f"check_{check_index}"
+def _to_json(value: Any) -> str:
+    if hasattr(value, "model_dump"):
+        payload = value.model_dump(mode="json")
+    else:
+        payload = value
+    return json.dumps(payload, ensure_ascii=False, default=str)
 
 
-def _check_summary(result: CheckResult, check_index: int) -> str:
-    label = _check_label(result, check_index)
-    return f"{label}: {result.message}" if result.message else label
-
-
-def _ensure_properties(parent: ET.Element) -> ET.Element:
-    properties = parent.find("properties")
-    if properties is None:
-        properties = ET.SubElement(parent, "properties")
-    return properties
-
-
-def _add_metric_properties(
-    parent: ET.Element,
-    result: CheckResult,
-    check_index: int,
-) -> None:
-    if not result.metrics:
-        return
-
-    properties = _ensure_properties(parent)
-    for metric in result.metrics:
-        ET.SubElement(
-            properties,
-            "property",
-            name=f"check_{check_index}.{metric.name}",
-            value=str(metric.value),
+def _check_label(result: CheckResult, fallback: str) -> str:
+    if isinstance(result.details, dict):
+        return str(
+            result.details.get("check_name")
+            or result.details.get("check_kind")
+            or result.details.get("name")
+            or fallback
         )
+    return fallback
 
 
-def _append_system_out(parent: ET.Element, test_case: TestCaseResult) -> None:
-    if not test_case.results:
-        return
-
-    lines: list[str] = []
-    for check_index, result in enumerate(test_case.results, start=1):
-        lines.append(f"[{result.status.value.upper()}] {_check_summary(result, check_index)}")
-
-    system_out = ET.SubElement(parent, "system-out")
-    system_out.text = "\n".join(lines)
+def _iter_checks(scenario: ScenarioResult[Any]):
+    for step_index, step in enumerate(scenario.steps, start=1):
+        for check_index, check in enumerate(step.results, start=1):
+            yield step_index, check_index, check
 
 
-def _append_status_nodes(parent: ET.Element, test_case: TestCaseResult) -> None:
-    if test_case.passed:
-        return
-
-    if test_case.failed:
-        for check_index, result in enumerate(test_case.results, start=1):
-            if not result.failed:
-                continue
-            node = ET.SubElement(
-                parent,
-                "failure",
-                {
-                    "type": _check_label(result, check_index),
-                    "message": result.message or _check_label(result, check_index),
-                },
-            )
-            node.text = _check_summary(result, check_index)
-        return
-
-    if test_case.errored:
-        for check_index, result in enumerate(test_case.results, start=1):
-            if not result.errored:
-                continue
-            node = ET.SubElement(
-                parent,
-                "error",
-                {
-                    "type": _check_label(result, check_index),
-                    "message": result.message or _check_label(result, check_index),
-                },
-            )
-            node.text = _check_summary(result, check_index)
-        return
-
-    skipped_messages = [
-        _check_summary(result, check_index)
-        for check_index, result in enumerate(test_case.results, start=1)
-        if result.skipped
-    ]
-    node = ET.SubElement(parent, "skipped")
-    node.text = "\n".join(skipped_messages)
+def _scenario_assertions(scenario: ScenarioResult[Any]) -> int:
+    return sum(len(step.results) for step in scenario.steps)
 
 
-def _scenario_counts(scenario: ScenarioResult[Any]) -> tuple[int, int, int, int]:
-    tests = len(scenario.steps)
-    failures = sum(1 for step in scenario.steps if step.failed)
-    errors = sum(1 for step in scenario.steps if step.errored)
-    skipped = sum(1 for step in scenario.steps if step.skipped)
-    return tests, failures, errors, skipped
+def _suite_assertions(result: SuiteResult) -> int:
+    return sum(_scenario_assertions(scenario) for scenario in result.results)
 
 
 def _suite_counts(result: SuiteResult) -> tuple[int, int, int, int]:
-    tests = sum(len(scenario.steps) for scenario in result.results)
-    failures = sum(
-        1 for scenario in result.results for step in scenario.steps if step.failed
-    )
-    errors = sum(
-        1 for scenario in result.results for step in scenario.steps if step.errored
-    )
-    skipped = sum(
-        1 for scenario in result.results for step in scenario.steps if step.skipped
-    )
+    tests = len(result.results)
+    failures = sum(1 for scenario in result.results if scenario.failed)
+    errors = sum(1 for scenario in result.results if scenario.errored)
+    skipped = sum(1 for scenario in result.results if scenario.skipped)
     return tests, failures, errors, skipped
+
+
+def _matching_checks(
+    scenario: ScenarioResult[Any], *, failed: bool = False, errored: bool = False, skipped: bool = False
+) -> list[tuple[int, int, CheckResult]]:
+    matches: list[tuple[int, int, CheckResult]] = []
+    for step_index, check_index, check in _iter_checks(scenario):
+        if failed and check.failed:
+            matches.append((step_index, check_index, check))
+        elif errored and check.errored:
+            matches.append((step_index, check_index, check))
+        elif skipped and check.skipped:
+            matches.append((step_index, check_index, check))
+    return matches
+
+
+def _build_detail_text(
+    scenario: ScenarioResult[Any], matches: list[tuple[int, int, CheckResult]]
+) -> str:
+    lines = [f"scenario={scenario.scenario_name}", f"final_trace={_to_json(scenario.final_trace)}"]
+
+    for step_index, _, _ in matches:
+        step = scenario.steps[step_index - 1]
+        lines.append(f"step_{step_index}={_to_json(step)}")
+
+    for step_index, check_index, check in matches:
+        label = _check_label(check, f"check_{check_index}")
+        status = check.status.value.upper()
+        message = check.message or ""
+        lines.append(f"[{status}] step_{step_index}.{label}: {message}")
+        if check.details:
+            lines.append(f"details={_to_json(check.details)}")
+
+    return "\n".join(lines)
+
+
+def _append_properties(testcase_el: ET.Element, scenario: ScenarioResult[Any]) -> None:
+    properties_el = ET.SubElement(testcase_el, "properties")
+
+    ET.SubElement(
+        properties_el,
+        "property",
+        {"name": "final_trace", "value": _to_json(scenario.final_trace)},
+    )
+
+    for step_index, step in enumerate(scenario.steps, start=1):
+        ET.SubElement(
+            properties_el,
+            "property",
+            {"name": f"step_{step_index}", "value": _to_json(step)},
+        )
+
+        for check_index, check in enumerate(step.results, start=1):
+            for metric in check.metrics:
+                ET.SubElement(
+                    properties_el,
+                    "property",
+                    {
+                        "name": f"step_{step_index}.check_{check_index}.{metric.name}",
+                        "value": str(metric.value),
+                    },
+                )
+
+
+def _append_status_node(testcase_el: ET.Element, scenario: ScenarioResult[Any]) -> None:
+    if scenario.errored:
+        matches = _matching_checks(scenario, errored=True)
+        first = matches[0][2] if matches else None
+        node = ET.SubElement(
+            testcase_el,
+            "error",
+            {
+                "type": _check_label(first, "error") if first else "error",
+                "message": first.message if first and first.message else "Scenario errored.",
+            },
+        )
+        node.text = _build_detail_text(scenario, matches)
+        return
+
+    if scenario.failed:
+        matches = _matching_checks(scenario, failed=True)
+        first = matches[0][2] if matches else None
+        node = ET.SubElement(
+            testcase_el,
+            "failure",
+            {
+                "type": _check_label(first, "failure") if first else "failure",
+                "message": first.message if first and first.message else "Scenario failed.",
+            },
+        )
+        node.text = _build_detail_text(scenario, matches)
+        return
+
+    if scenario.skipped:
+        matches = _matching_checks(scenario, skipped=True)
+        node = ET.SubElement(testcase_el, "skipped")
+        node.text = _build_detail_text(scenario, matches)
+
+
+def _append_system_out(testcase_el: ET.Element, scenario: ScenarioResult[Any]) -> None:
+    lines = [f"final_trace={_to_json(scenario.final_trace)}"]
+
+    for step_index, step in enumerate(scenario.steps, start=1):
+        lines.append(f"step_{step_index}={_to_json(step)}")
+        for check_index, check in enumerate(step.results, start=1):
+            label = _check_label(check, f"check_{check_index}")
+            message = check.message or ""
+            lines.append(
+                f"[{check.status.value.upper()}] step_{step_index}.{label}: {message}"
+            )
+
+    system_out = ET.SubElement(testcase_el, "system-out")
+    system_out.text = "\n".join(lines)
 
 
 def to_junit_xml(result: SuiteResult, path: str | Path | None = None) -> str:
     tests, failures, errors, skipped = _suite_counts(result)
 
     root = ET.Element(
-        "testsuites",
+        "testsuite",
         {
-            "name": "giskard",
+            "name": "Test run",
             "tests": str(tests),
             "failures": str(failures),
             "errors": str(errors),
             "skipped": str(skipped),
+            "assertions": str(_suite_assertions(result)),
             "time": _seconds(result.duration_ms),
+            "timestamp": datetime.now(timezone.utc)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z"),
         },
     )
 
     for scenario in result.results:
-        scenario_tests, scenario_failures, scenario_errors, scenario_skipped = (
-            _scenario_counts(scenario)
-        )
-
-        testsuite_el = ET.SubElement(
+        testcase_el = ET.SubElement(
             root,
-            "testsuite",
+            "testcase",
             {
                 "name": scenario.scenario_name,
-                "tests": str(scenario_tests),
-                "failures": str(scenario_failures),
-                "errors": str(scenario_errors),
-                "skipped": str(scenario_skipped),
+                "assertions": str(_scenario_assertions(scenario)),
                 "time": _seconds(scenario.duration_ms),
             },
         )
 
-        for step_index, test_case in enumerate(scenario.steps, start=1):
-            testcase_el = ET.SubElement(
-                testsuite_el,
-                "testcase",
-                {
-                    "classname": scenario.scenario_name,
-                    "name": f"step_{step_index}",
-                    "time": _seconds(test_case.duration_ms),
-                },
-            )
-
-            for check_index, check_result in enumerate(test_case.results, start=1):
-                _add_metric_properties(testcase_el, check_result, check_index)
-
-            _append_status_nodes(testcase_el, test_case)
-            _append_system_out(testcase_el, test_case)
+        _append_properties(testcase_el, scenario)
+        _append_status_node(testcase_el, scenario)
+        _append_system_out(testcase_el, scenario)
 
     tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")
