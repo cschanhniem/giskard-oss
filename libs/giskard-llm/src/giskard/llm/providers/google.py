@@ -42,9 +42,10 @@ Provider-specific kwargs:
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false
 
 import json
+import logging
 import os
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, NoReturn
 
 from pydantic import BaseModel
 
@@ -52,10 +53,10 @@ from ..errors import (
     AuthenticationError,
     BadRequestError,
     LLMError,
+    LLMTimeoutError,
     ProviderNotAvailableError,
     RateLimitError,
     ServerError,
-    TimeoutError,
 )
 from ..types import (
     ChatMessage,
@@ -64,48 +65,63 @@ from ..types import (
     CompletionResponse,
     EmbeddingData,
     EmbeddingResponse,
+    ResponseOutputFunctionCall,
+    ResponseOutputText,
+    ResponseResult,
     ToolCall,
     ToolCallFunction,
+    ToolDef,
     Usage,
 )
-from .base import BaseProvider
+
+logger = logging.getLogger(__name__)
 
 PROVIDER = "google"
 
+KNOWN_COMPLETION_PARAMS = frozenset(
+    {"temperature", "max_tokens", "tools", "response_format", "safety_settings"}
+)
+KNOWN_EMBEDDING_PARAMS = frozenset({"dimensions"})
+KNOWN_RESPONSE_PARAMS = frozenset({"temperature"})
 
-def _import_genai():
+
+def _import_genai() -> Any:
     try:
         from google import genai
 
         return genai
-    except ImportError:
-        raise ProviderNotAvailableError(PROVIDER, "google-genai")
+    except ImportError as exc:
+        raise ProviderNotAvailableError(PROVIDER, "google-genai") from exc
 
 
-def _import_genai_types():
+def _import_genai_types() -> Any:
     try:
         from google.genai import types
 
         return types
-    except ImportError:
-        raise ProviderNotAvailableError(PROVIDER, "google-genai")
+    except ImportError as exc:
+        raise ProviderNotAvailableError(PROVIDER, "google-genai") from exc
 
 
-def _import_genai_errors():
+def _import_genai_errors() -> Any:
     try:
         from google.genai import errors
 
         return errors
-    except ImportError:
-        raise ProviderNotAvailableError(PROVIDER, "google-genai")
+    except ImportError as exc:
+        raise ProviderNotAvailableError(PROVIDER, "google-genai") from exc
 
 
-class GoogleProvider(BaseProvider):
+class GoogleProvider:
     def __init__(
         self,
         api_key: str | None = None,
         **_kwargs: Any,
     ) -> None:
+        if _kwargs:
+            logger.warning(
+                "%s provider: ignoring unknown kwargs: %s", PROVIDER, sorted(_kwargs)
+            )
         genai = _import_genai()
         resolved_key = (
             api_key
@@ -114,16 +130,37 @@ class GoogleProvider(BaseProvider):
         )
         self._client = genai.Client(api_key=resolved_key)
 
+    def _map_error(self, e: Exception) -> NoReturn:
+        """Map a ``google.genai`` SDK exception to the giskard error hierarchy."""
+        genai_errors = _import_genai_errors()
+        if isinstance(e, genai_errors.ClientError):
+            status = getattr(e, "code", 400)
+            if status == 429:
+                raise RateLimitError(429, str(e), PROVIDER) from e
+            if status in (401, 403) or "API_KEY_INVALID" in str(e):
+                raise AuthenticationError(status, str(e), PROVIDER) from e
+            raise BadRequestError(status, str(e), PROVIDER) from e
+        if isinstance(e, genai_errors.ServerError):
+            raise ServerError(getattr(e, "code", 500), str(e), PROVIDER) from e
+        if isinstance(e, genai_errors.APIError):
+            raise LLMError(getattr(e, "code", 500), str(e), PROVIDER) from e
+        if "timed out" in str(e).lower() or "timeout" in type(e).__name__.lower():
+            raise LLMTimeoutError(408, str(e), PROVIDER) from e
+        raise e
+
     async def complete(
         self,
         model: str,
         messages: Sequence[ChatMessage],
+        *,
+        tools: list[ToolDef] | None = None,
         **params: Any,
     ) -> CompletionResponse:
-        genai_errors = _import_genai_errors()
         types = _import_genai_types()
 
         self._validate_messages(messages)
+        if tools is not None:
+            params["tools"] = tools
         contents = self._convert_messages(messages)
         config = self._build_config(messages, params, types)
 
@@ -133,16 +170,8 @@ class GoogleProvider(BaseProvider):
                 contents=contents,
                 config=config,
             )
-        except genai_errors.ClientError as e:
-            raise self._map_client_error(e) from e
-        except genai_errors.ServerError as e:
-            raise ServerError(getattr(e, "code", 500), str(e), PROVIDER) from e
-        except genai_errors.APIError as e:
-            raise LLMError(getattr(e, "code", 500), str(e), PROVIDER) from e
-        except Exception as e:
-            if "timed out" in str(e).lower() or "timeout" in type(e).__name__.lower():
-                raise TimeoutError(408, str(e), PROVIDER) from e
-            raise
+        except Exception as e:  # Broad catch: _map_error checks SDK types first, then applies timeout heuristic, then re-raises.
+            self._map_error(e)
 
         return self._to_completion_response(raw, model)
 
@@ -152,7 +181,14 @@ class GoogleProvider(BaseProvider):
         input: list[str],
         **params: Any,
     ) -> EmbeddingResponse:
-        genai_errors = _import_genai_errors()
+        unknown = set(params) - KNOWN_EMBEDDING_PARAMS
+        if unknown:
+            logger.warning(
+                "%s provider: ignoring unknown embedding params: %s",
+                PROVIDER,
+                sorted(unknown),
+            )
+
         types = _import_genai_types()
 
         config_kwargs: dict[str, Any] = {}
@@ -167,25 +203,10 @@ class GoogleProvider(BaseProvider):
                 contents=input,
                 config=config,
             )
-        except genai_errors.ClientError as e:
-            raise self._map_client_error(e) from e
-        except genai_errors.ServerError as e:
-            raise ServerError(getattr(e, "code", 500), str(e), PROVIDER) from e
-        except genai_errors.APIError as e:
-            raise LLMError(getattr(e, "code", 500), str(e), PROVIDER) from e
+        except Exception as e:  # Broad catch: _map_error checks SDK types first, then applies timeout heuristic, then re-raises.
+            self._map_error(e)
 
         return self._to_embedding_response(raw, model)
-
-    # -- error mapping ---------------------------------------------------------
-
-    def _map_client_error(self, e: Any) -> LLMError:
-        """Map a ``genai.errors.ClientError`` to the appropriate giskard error."""
-        status = getattr(e, "code", 400)
-        if status == 429:
-            return RateLimitError(429, str(e), PROVIDER)
-        if status in (401, 403) or "API_KEY_INVALID" in str(e):
-            return AuthenticationError(status, str(e), PROVIDER)
-        return BadRequestError(status, str(e), PROVIDER)
 
     # -- validation ------------------------------------------------------------
 
@@ -252,6 +273,14 @@ class GoogleProvider(BaseProvider):
         self, messages: Sequence[ChatMessage], params: dict[str, Any], types: Any
     ) -> Any:
         """Build a GenerateContentConfig from OpenAI-style params."""
+        unknown = set(params) - KNOWN_COMPLETION_PARAMS
+        if unknown:
+            logger.warning(
+                "%s provider: ignoring unknown completion params: %s",
+                PROVIDER,
+                sorted(unknown),
+            )
+
         config_kwargs: dict[str, Any] = {}
 
         if params.get("temperature") is not None:
@@ -259,8 +288,7 @@ class GoogleProvider(BaseProvider):
         if params.get("max_tokens") is not None:
             config_kwargs["max_output_tokens"] = params["max_tokens"]
 
-        tools = params.get("tools")
-        if tools:
+        if tools := params.get("tools"):
             config_kwargs["tools"] = [self._convert_tool(t, types) for t in tools]
 
         response_format = params.get("response_format")
@@ -270,7 +298,7 @@ class GoogleProvider(BaseProvider):
             and issubclass(response_format, BaseModel)
         ):
             config_kwargs["response_mime_type"] = "application/json"
-            config_kwargs["response_schema"] = response_format.model_json_schema()
+            config_kwargs["response_schema"] = response_format
 
         system_instructions = self._extract_system_instructions(messages)
         if system_instructions:
@@ -334,7 +362,7 @@ class GoogleProvider(BaseProvider):
                                 type="function",
                                 function=ToolCallFunction(
                                     name=fc.name,
-                                    arguments=json.dumps(fc.args) if fc.args else "{}",
+                                    arguments=dict(fc.args) if fc.args else {},
                                 ),
                             )
                         )
@@ -371,3 +399,75 @@ class GoogleProvider(BaseProvider):
             for i, emb in enumerate(raw.embeddings):
                 data.append(EmbeddingData(embedding=list(emb.values), index=i))
         return EmbeddingResponse(data=data, model=model, usage=None)
+
+    # -- Interactions API ------------------------------------------------------
+
+    async def respond(
+        self,
+        model: str,
+        input: str | list[dict[str, Any]],
+        *,
+        instructions: str | None = None,
+        previous_id: str | None = None,
+        tools: list[ToolDef] | None = None,
+        **params: Any,
+    ) -> ResponseResult:
+        unknown = set(params) - KNOWN_RESPONSE_PARAMS
+        if unknown:
+            logger.warning(
+                "%s provider: ignoring unknown response params: %s",
+                PROVIDER,
+                sorted(unknown),
+            )
+
+        kwargs: dict[str, Any] = {"model": model, "input": input}
+        if instructions is not None:
+            kwargs["system_instruction"] = instructions
+        if previous_id is not None:
+            kwargs["previous_interaction_id"] = previous_id
+        if tools is not None:
+            kwargs["tools"] = tools
+        if params.get("temperature") is not None:
+            kwargs["generation_config"] = kwargs.get("generation_config", {})
+            kwargs["generation_config"]["temperature"] = params["temperature"]
+
+        try:
+            raw = await self._client.aio.interactions.create(**kwargs)
+        except Exception as e:  # Broad catch: _map_error checks SDK types first, then applies timeout heuristic, then re-raises.
+            self._map_error(e)
+
+        return self._to_response_result(raw, model)
+
+    def _to_response_result(self, raw: Any, model: str) -> ResponseResult:
+        outputs: list[ResponseOutputText | ResponseOutputFunctionCall] = []
+        for item in getattr(raw, "outputs", []):
+            item_type = getattr(item, "type", None)
+            if item_type == "text":
+                outputs.append(ResponseOutputText(text=item.text))
+            elif item_type == "function_call":
+                args = getattr(item, "arguments", {})
+                outputs.append(
+                    ResponseOutputFunctionCall(
+                        call_id=getattr(item, "call_id", None),
+                        name=item.name,
+                        arguments=args if isinstance(args, dict) else {},
+                    )
+                )
+
+        usage = None
+        usage_meta = getattr(raw, "usage", None)
+        if usage_meta:
+            outputs_tokens = getattr(usage_meta, "output_tokens", 0) or 0
+            input_tokens = getattr(usage_meta, "input_tokens", 0) or 0
+            usage = Usage(
+                prompt_tokens=input_tokens,
+                completion_tokens=outputs_tokens,
+                total_tokens=input_tokens + outputs_tokens,
+            )
+
+        return ResponseResult(
+            id=raw.id,
+            outputs=outputs,
+            model=model,
+            usage=usage,
+        )

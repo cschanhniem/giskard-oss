@@ -221,7 +221,7 @@ async def test_client_acompletion_routes(mock_create):
     client = LLMClient()
     await client.acompletion("openai/gpt-4o", [{"role": "user", "content": "Hi"}])
     mock_provider.complete.assert_called_once_with(
-        "gpt-4o", [{"role": "user", "content": "Hi"}]
+        "gpt-4o", [{"role": "user", "content": "Hi"}], tools=None
     )
 
 
@@ -234,3 +234,29 @@ async def test_client_aembedding_routes(mock_create):
     client = LLMClient()
     await client.aembedding("openai/text-embedding-3-small", ["hello"])
     mock_provider.embed.assert_called_once_with("text-embedding-3-small", ["hello"])
+
+
+@patch("giskard.llm.routing._create_provider")
+async def test_client_aresponse_dispatches(mock_create):
+    mock_provider = MagicMock()
+    mock_provider.respond = AsyncMock(return_value=MagicMock(id="resp_1"))
+    mock_create.return_value = mock_provider
+
+    client = LLMClient()
+    await client.aresponse("openai/gpt-4o", "Hello")
+    mock_provider.respond.assert_called_once_with(
+        "gpt-4o", "Hello", instructions=None, previous_id=None, tools=None
+    )
+
+
+@patch("giskard.llm.routing._create_provider")
+async def test_client_aresponse_unsupported_raises(mock_create):
+    """Provider without respond() method raises UnsupportedOperationError."""
+    from giskard.llm.errors import UnsupportedOperationError
+
+    provider = MagicMock(spec=["complete", "embed"])
+    mock_create.return_value = provider
+
+    client = LLMClient()
+    with pytest.raises(UnsupportedOperationError, match="does not support"):
+        await client.aresponse("openai/gpt-4o", "Hello")

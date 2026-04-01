@@ -9,7 +9,7 @@ unchanged regardless of the underlying provider.
 class LLMError(Exception):
     """Base for all giskard-llm errors."""
 
-    def __init__(self, status_code: int, message: str, provider: str):
+    def __init__(self, status_code: int, message: str, provider: str) -> None:
         self.status_code = status_code
         self.message = message
         self.provider = provider
@@ -28,7 +28,7 @@ class ServerError(LLMError):
     """Provider-side error (500/502/503/529)."""
 
 
-class TimeoutError(LLMError):
+class LLMTimeoutError(LLMError):
     """Request timed out (408)."""
 
 
@@ -36,10 +36,20 @@ class BadRequestError(LLMError):
     """Malformed request (400)."""
 
 
+class UnsupportedOperationError(LLMError):
+    """The provider does not support the requested operation."""
+
+    def __init__(self, provider: str, operation: str) -> None:
+        super().__init__(
+            0, f"Provider '{provider}' does not support {operation}.", provider
+        )
+        self.operation = operation
+
+
 class ProviderNotAvailableError(LLMError):
     """The provider SDK is not installed."""
 
-    def __init__(self, provider: str, package: str):
+    def __init__(self, provider: str, package: str) -> None:
         super().__init__(
             0,
             f"Provider '{provider}' requires the '{package}' package. "

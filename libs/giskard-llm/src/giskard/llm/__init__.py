@@ -4,15 +4,15 @@ from .errors import (
     AuthenticationError,
     BadRequestError,
     LLMError,
+    LLMTimeoutError,
     ProviderNotAvailableError,
     RateLimitError,
     ServerError,
-    TimeoutError,
+    UnsupportedOperationError,
 )
+from .providers.base import CompletionProvider, EmbeddingProvider, ResponseProvider
 from .retry import should_retry
-from .routing import LLMClient
-from .routing import route_completion as acompletion
-from .routing import route_embedding as aembedding
+from .routing import LLMClient, acompletion, aembedding, aresponse, configure, reset
 from .types import (
     ChatMessage,
     Choice,
@@ -20,28 +20,59 @@ from .types import (
     CompletionResponse,
     EmbeddingData,
     EmbeddingResponse,
+    EmbeddingUsage,
+    FunctionDef,
+    ResponseOutputFunctionCall,
+    ResponseOutputItem,
+    ResponseOutputText,
+    ResponseResult,
     ToolCall,
     ToolCallFunction,
+    ToolDef,
+    Usage,
 )
 
 __all__ = [
-    "LLMClient",
+    # Functions
     "acompletion",
     "aembedding",
+    "aresponse",
+    "configure",
+    "reset",
     "should_retry",
+    # Client
+    "LLMClient",
+    # Protocols
+    "CompletionProvider",
+    "EmbeddingProvider",
+    "ResponseProvider",
+    # Types — Completion
     "CompletionResponse",
     "Choice",
     "ChoiceMessage",
+    "ChatMessage",
+    "Usage",
+    # Types — Tools
     "ToolCall",
     "ToolCallFunction",
-    "ChatMessage",
+    "ToolDef",
+    "FunctionDef",
+    # Types — Embedding
     "EmbeddingResponse",
     "EmbeddingData",
+    "EmbeddingUsage",
+    # Types — Response
+    "ResponseResult",
+    "ResponseOutputText",
+    "ResponseOutputFunctionCall",
+    "ResponseOutputItem",
+    # Errors
     "LLMError",
     "AuthenticationError",
     "BadRequestError",
     "RateLimitError",
     "ServerError",
-    "TimeoutError",
+    "LLMTimeoutError",
+    "UnsupportedOperationError",
     "ProviderNotAvailableError",
 ]

@@ -23,7 +23,7 @@ Every provider class docstring must cover:
 ## Example
 
 ```python
-class GoogleProvider(BaseProvider):
+class GoogleProvider:
     """Google Gemini provider using the ``google-genai`` SDK.
 
     Routing prefix: ``google/``

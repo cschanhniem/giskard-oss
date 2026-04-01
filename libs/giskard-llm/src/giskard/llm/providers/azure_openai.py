@@ -30,16 +30,22 @@ Provider-specific kwargs:
 
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false, reportImplicitRelativeImport=false, reportMissingSuperCall=false
 
+import logging
 import os
 from typing import Any
 
 from ..errors import ProviderNotAvailableError
+from ..utils import compact
 from .openai import OpenAIProvider
+
+logger = logging.getLogger(__name__)
 
 PROVIDER = "azure"
 
 
 class AzureOpenAIProvider(OpenAIProvider):
+    _PROVIDER = "azure"
+
     def __init__(
         self,
         api_key: str | None = None,
@@ -48,6 +54,10 @@ class AzureOpenAIProvider(OpenAIProvider):
         timeout: float | None = None,
         **_kwargs: Any,
     ) -> None:
+        if _kwargs:
+            logger.warning(
+                "%s provider: ignoring unknown kwargs: %s", PROVIDER, sorted(_kwargs)
+            )
         try:
             import openai
         except ImportError as exc:
@@ -59,14 +69,11 @@ class AzureOpenAIProvider(OpenAIProvider):
             "AZURE_API_VERSION", "2024-10-21"
         )
 
-        client_kwargs: dict[str, Any] = {
-            "api_key": resolved_key,
-            "azure_endpoint": resolved_base,
-            "api_version": resolved_version,
-        }
-        if timeout is not None:
-            client_kwargs["timeout"] = timeout
-
         self._client = openai.AsyncAzureOpenAI(
-            **{k: v for k, v in client_kwargs.items() if v is not None}
+            **compact(
+                api_key=resolved_key,
+                azure_endpoint=resolved_base,
+                api_version=resolved_version,
+                timeout=timeout,
+            )
         )

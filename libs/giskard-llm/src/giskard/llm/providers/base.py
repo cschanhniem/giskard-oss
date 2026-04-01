@@ -1,29 +1,64 @@
-"""Abstract base for LLM providers."""
+"""Protocol definitions for LLM providers.
 
-from abc import ABC, abstractmethod
+Providers implement whichever protocols they support. The router checks
+capability at dispatch time via ``isinstance``.
+"""
+
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
-from ..types import ChatMessage, CompletionResponse, EmbeddingResponse
+from ..types import (
+    ChatMessage,
+    CompletionResponse,
+    EmbeddingResponse,
+    ResponseResult,
+    ToolDef,
+)
 
 
-class BaseProvider(ABC):
-    """Each provider translates between the unified API and its native SDK."""
+@runtime_checkable
+class CompletionProvider(Protocol):
+    """Provider capable of chat completions."""
 
-    @abstractmethod
     async def complete(
         self,
         model: str,
         messages: Sequence[ChatMessage],
+        *,
+        tools: list[ToolDef] | None = None,
         **params: Any,
     ) -> CompletionResponse:
-        """Send a chat completion request and return a unified response."""
+        """Send a chat completion request. Raises LLMError on provider failures."""
+        ...
 
-    @abstractmethod
+
+@runtime_checkable
+class EmbeddingProvider(Protocol):
+    """Provider capable of text embeddings."""
+
     async def embed(
         self,
         model: str,
         input: list[str],
         **params: Any,
     ) -> EmbeddingResponse:
-        """Generate embeddings and return a unified response."""
+        """Compute embeddings for the given texts. Raises LLMError on provider failures."""
+        ...
+
+
+@runtime_checkable
+class ResponseProvider(Protocol):
+    """Provider capable of stateful responses (OpenAI Responses / Gemini Interactions)."""
+
+    async def respond(
+        self,
+        model: str,
+        input: str | list[dict[str, Any]],
+        *,
+        instructions: str | None = None,
+        previous_id: str | None = None,
+        tools: list[ToolDef] | None = None,
+        **params: Any,
+    ) -> ResponseResult:
+        """Send a stateful response request. ``input`` is a string or list of role/content dicts for multi-turn."""
+        ...

@@ -14,11 +14,11 @@ from .middleware import CompletionMiddleware, RetryMiddleware, RetryPolicy
 @CompletionMiddleware.register("giskard_llm_retry")
 @CompletionMiddleware.register("litellm_retry")
 class GiskardLLMRetryMiddleware(RetryMiddleware):
-    """Retry middleware that checks HTTP status codes for retry eligibility."""
+    """Retry middleware that checks error types for retry eligibility."""
 
     @override
     def _should_retry(self, err: Exception) -> bool:
-        return should_retry(getattr(err, "status_code", 0))
+        return should_retry(err)
 
 
 @BaseGenerator.register("giskard_llm")

@@ -28,14 +28,14 @@ Error mapping:
     - ``anthropic.RateLimitError`` -> ``RateLimitError``
     - ``anthropic.AuthenticationError`` -> ``AuthenticationError``
     - ``anthropic.BadRequestError`` -> ``BadRequestError``
-    - ``anthropic.APITimeoutError`` -> ``TimeoutError``
+    - ``anthropic.APITimeoutError`` -> ``LLMTimeoutError``
     - ``anthropic.InternalServerError`` -> ``ServerError``
     - ``anthropic.APIStatusError`` -> ``LLMError``
 
 Supported features:
     - Completion: yes
-    - Embeddings: no (raises ``LLMError``)
-    - Structured output (response_format): yes, via forced tool call
+    - Embeddings: no (provider does not implement ``EmbeddingProvider``)
+    - Structured output (response_format): yes, via native ``output_config`` (json_schema)
 
 Provider-specific kwargs (configure-time):
     - ``merge_system``: if True, concatenate multiple system messages instead of raising
@@ -46,8 +46,9 @@ Provider-specific kwargs (configure-time):
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false, reportImplicitRelativeImport=false
 
 import json
+import logging
 from collections.abc import Sequence
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NoReturn, TypedDict
 
 from pydantic import BaseModel
 
@@ -55,24 +56,30 @@ from ..errors import (
     AuthenticationError,
     BadRequestError,
     LLMError,
+    LLMTimeoutError,
     ProviderNotAvailableError,
     RateLimitError,
     ServerError,
-    TimeoutError,
 )
 from ..types import (
     ChatMessage,
     Choice,
     ChoiceMessage,
     CompletionResponse,
-    EmbeddingResponse,
     ToolCall,
     ToolCallFunction,
+    ToolDef,
     Usage,
 )
-from .base import BaseProvider
+from ..utils import compact
+
+logger = logging.getLogger(__name__)
 
 PROVIDER = "anthropic"
+
+KNOWN_COMPLETION_PARAMS = frozenset(
+    {"temperature", "max_tokens", "timeout", "tools", "response_format"}
+)
 
 
 # -- Private wire-format TypedDicts -------------------------------------------
@@ -101,16 +108,16 @@ class _AnthropicMessage(TypedDict):
     content: str | list[_ToolResultContent | _ToolUseContent | _TextContent]
 
 
-def _import_anthropic():
+def _import_anthropic() -> Any:
     try:
         import anthropic
 
         return anthropic
-    except ImportError:
-        raise ProviderNotAvailableError(PROVIDER, "anthropic")
+    except ImportError as exc:
+        raise ProviderNotAvailableError(PROVIDER, "anthropic") from exc
 
 
-class AnthropicProvider(BaseProvider):
+class AnthropicProvider:
     def __init__(
         self,
         api_key: str | None = None,
@@ -119,56 +126,57 @@ class AnthropicProvider(BaseProvider):
         merge_system: bool = False,
         **_kwargs: Any,
     ) -> None:
+        if _kwargs:
+            logger.warning(
+                "%s provider: ignoring unknown kwargs: %s", PROVIDER, sorted(_kwargs)
+            )
         anthropic = _import_anthropic()
         self._merge_system = merge_system
-        client_kwargs: dict[str, Any] = {}
-        if api_key is not None:
-            client_kwargs["api_key"] = api_key
-        if base_url is not None:
-            client_kwargs["base_url"] = base_url
-        if timeout is not None:
-            client_kwargs["timeout"] = timeout
-        self._client = anthropic.AsyncAnthropic(**client_kwargs)
+        self._client = anthropic.AsyncAnthropic(
+            **compact(api_key=api_key, base_url=base_url, timeout=timeout)
+        )
+
+    def _map_error(self, e: Exception) -> NoReturn:
+        """Map an ``anthropic.*`` SDK exception to the giskard error hierarchy."""
+        anthropic = _import_anthropic()
+        if isinstance(e, anthropic.RateLimitError):
+            raise RateLimitError(429, str(e), PROVIDER) from e
+        if isinstance(e, anthropic.AuthenticationError):
+            raise AuthenticationError(e.status_code, str(e), PROVIDER) from e
+        if isinstance(e, anthropic.BadRequestError):
+            raise BadRequestError(e.status_code, str(e), PROVIDER) from e
+        if isinstance(e, anthropic.APITimeoutError):
+            raise LLMTimeoutError(408, str(e), PROVIDER) from e
+        if isinstance(e, anthropic.InternalServerError):
+            raise ServerError(e.status_code, str(e), PROVIDER) from e
+        if isinstance(e, anthropic.APIStatusError):
+            raise LLMError(e.status_code, str(e), PROVIDER) from e
+        if isinstance(e, anthropic.APIError):
+            raise LLMError(
+                getattr(e, "status_code", None) or 500, str(e), PROVIDER
+            ) from e
+        raise e
 
     async def complete(
         self,
         model: str,
         messages: Sequence[ChatMessage],
+        *,
+        tools: list[ToolDef] | None = None,
         **params: Any,
     ) -> CompletionResponse:
         anthropic = _import_anthropic()
         self._validate_messages(messages)
+        if tools is not None:
+            params["tools"] = tools
         kwargs = self._build_completion_kwargs(model, messages, params)
 
         try:
             raw = await self._client.messages.create(**kwargs)
-        except anthropic.RateLimitError as e:
-            raise RateLimitError(429, str(e), PROVIDER) from e
-        except anthropic.AuthenticationError as e:
-            raise AuthenticationError(e.status_code, str(e), PROVIDER) from e
-        except anthropic.BadRequestError as e:
-            raise BadRequestError(e.status_code, str(e), PROVIDER) from e
-        except anthropic.APITimeoutError as e:
-            raise TimeoutError(408, str(e), PROVIDER) from e
-        except anthropic.InternalServerError as e:
-            raise ServerError(e.status_code, str(e), PROVIDER) from e
-        except anthropic.APIStatusError as e:
-            raise LLMError(e.status_code, str(e), PROVIDER) from e
+        except anthropic.APIError as e:
+            self._map_error(e)
 
         return self._to_completion_response(raw)
-
-    async def embed(
-        self,
-        model: str,
-        input: list[str],
-        **params: Any,
-    ) -> EmbeddingResponse:
-        raise LLMError(
-            400,
-            "Anthropic does not support embeddings. "
-            "Use an openai or google embedding model instead.",
-            PROVIDER,
-        )
 
     # -- validation ------------------------------------------------------------
 
@@ -221,6 +229,15 @@ class AnthropicProvider(BaseProvider):
         messages: Sequence[ChatMessage],
         params: dict[str, Any],
     ) -> dict[str, Any]:
+        """Build kwargs dict for the Anthropic Messages API."""
+        unknown = set(params) - KNOWN_COMPLETION_PARAMS
+        if unknown:
+            logger.warning(
+                "%s provider: ignoring unknown completion params: %s",
+                PROVIDER,
+                sorted(unknown),
+            )
+
         system_parts, user_messages = self._split_system_messages(messages)
         converted = self._convert_messages(user_messages)
 
@@ -237,8 +254,7 @@ class AnthropicProvider(BaseProvider):
         if params.get("timeout") is not None:
             kwargs["timeout"] = params["timeout"]
 
-        tools = params.get("tools")
-        if tools:
+        if tools := params.get("tools"):
             kwargs["tools"] = [self._convert_tool(t) for t in tools]
 
         response_format = params.get("response_format")
@@ -248,20 +264,20 @@ class AnthropicProvider(BaseProvider):
             and issubclass(response_format, BaseModel)
         ):
             schema = response_format.model_json_schema()
-            kwargs["tools"] = kwargs.get("tools", []) + [
-                {
-                    "name": "_structured_output",
-                    "description": f"Return output matching the {response_format.__name__} schema.",
-                    "input_schema": schema,
+            schema["additionalProperties"] = False
+            kwargs["output_config"] = {
+                "format": {
+                    "type": "json_schema",
+                    "schema": schema,
                 }
-            ]
-            kwargs["tool_choice"] = {"type": "tool", "name": "_structured_output"}
+            }
 
         return kwargs
 
     def _split_system_messages(
         self, messages: Sequence[ChatMessage]
     ) -> tuple[list[str], list[ChatMessage]]:
+        """Separate system messages from conversation messages."""
         system: list[str] = []
         rest: list[ChatMessage] = []
         for m in messages:
@@ -321,6 +337,7 @@ class AnthropicProvider(BaseProvider):
         }
 
     def _to_completion_response(self, raw: Any) -> CompletionResponse:
+        """Convert raw SDK response to CompletionResponse."""
         content_text: list[str] = []
         tool_calls: list[ToolCall] = []
 
@@ -334,7 +351,9 @@ class AnthropicProvider(BaseProvider):
                         type="function",
                         function=ToolCallFunction(
                             name=block.name,
-                            arguments=json.dumps(block.input),
+                            arguments=block.input
+                            if isinstance(block.input, dict)
+                            else json.loads(block.input),
                         ),
                     )
                 )

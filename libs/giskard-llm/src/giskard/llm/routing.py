@@ -5,8 +5,18 @@ import os
 from collections.abc import Sequence
 from typing import Any
 
-from .providers.base import BaseProvider
-from .types import ChatMessage, CompletionResponse, EmbeddingResponse
+from .errors import UnsupportedOperationError
+from .providers.base import CompletionProvider, EmbeddingProvider, ResponseProvider
+from .types import (
+    ChatMessage,
+    CompletionResponse,
+    EmbeddingResponse,
+    ResponseResult,
+    ToolDef,
+)
+
+# Plain assignment (not `type` statement) so isinstance checks work at runtime.
+Provider = CompletionProvider | EmbeddingProvider | ResponseProvider
 
 _PROVIDER_REGISTRY: dict[str, tuple[str, str]] = {
     "openai": ("giskard.llm.providers.openai", "OpenAIProvider"),
@@ -49,7 +59,7 @@ def _parse_model_string(model: str) -> tuple[str, str]:
     return provider, model_name
 
 
-def _create_provider(provider_type: str, **kwargs: Any) -> BaseProvider:
+def _create_provider(provider_type: str, **kwargs: Any) -> Provider:
     """Instantiate a provider by type name using the registry."""
     if provider_type not in _PROVIDER_REGISTRY:
         raise ValueError(
@@ -71,7 +81,7 @@ class LLMClient:
 
     def __init__(self) -> None:
         self._configs: dict[str, dict[str, Any]] = {}
-        self._providers: dict[str, BaseProvider] = {}
+        self._providers: dict[str, Provider] = {}
 
     def configure(self, name: str, provider: str | None = None, **kwargs: Any) -> None:
         """Register a named provider configuration.
@@ -93,7 +103,7 @@ class LLMClient:
         for name, kwargs in config.items():
             self.configure(name, **kwargs)
 
-    def _get_provider(self, name: str) -> BaseProvider:
+    def _get_provider(self, name: str) -> Provider:
         if name in self._providers:
             return self._providers[name]
 
@@ -115,16 +125,25 @@ class LLMClient:
             f"Call client.configure('{name}', ...) first."
         )
 
+    def _resolve(self, model: str, protocol: type, operation: str) -> tuple[Any, str]:
+        """Parse model string, look up the provider, and check capability."""
+        alias, model_name = _parse_model_string(model)
+        provider = self._get_provider(alias)
+        if not isinstance(provider, protocol):
+            raise UnsupportedOperationError(alias, operation)
+        return provider, model_name
+
     async def acompletion(
         self,
         model: str,
         messages: Sequence[ChatMessage],
+        *,
+        tools: list[ToolDef] | None = None,
         **params: Any,
     ) -> CompletionResponse:
         """Parse model string and dispatch to the right provider."""
-        alias, model_name = _parse_model_string(model)
-        provider = self._get_provider(alias)
-        return await provider.complete(model_name, messages, **params)
+        provider, model_name = self._resolve(model, CompletionProvider, "completions")
+        return await provider.complete(model_name, messages, tools=tools, **params)
 
     async def aembedding(
         self,
@@ -133,27 +152,82 @@ class LLMClient:
         **params: Any,
     ) -> EmbeddingResponse:
         """Parse model string and dispatch to the right provider."""
-        alias, model_name = _parse_model_string(model)
-        provider = self._get_provider(alias)
+        provider, model_name = self._resolve(model, EmbeddingProvider, "embeddings")
         return await provider.embed(model_name, input, **params)
+
+    async def aresponse(
+        self,
+        model: str,
+        input: str | list[dict[str, Any]],
+        *,
+        instructions: str | None = None,
+        previous_id: str | None = None,
+        tools: list[ToolDef] | None = None,
+        **params: Any,
+    ) -> ResponseResult:
+        """Parse model string and dispatch to the right provider's respond()."""
+        provider, model_name = self._resolve(
+            model, ResponseProvider, "the Responses/Interactions API"
+        )
+        return await provider.respond(
+            model_name,
+            input,
+            instructions=instructions,
+            previous_id=previous_id,
+            tools=tools,
+            **params,
+        )
 
 
 _default_client = LLMClient()
 
 
-async def route_completion(
+def configure(name: str, provider: str | None = None, **kwargs: Any) -> None:
+    """Configure a provider on the default client."""
+    _default_client.configure(name, provider, **kwargs)
+
+
+def reset() -> None:
+    """Clear all cached providers on the default client (useful in tests)."""
+    _default_client._providers.clear()
+    _default_client._configs.clear()
+
+
+async def acompletion(
     model: str,
     messages: Sequence[ChatMessage],
+    *,
+    tools: list[ToolDef] | None = None,
     **params: Any,
 ) -> CompletionResponse:
     """Module-level convenience wrapper around the default client."""
-    return await _default_client.acompletion(model, messages, **params)
+    return await _default_client.acompletion(model, messages, tools=tools, **params)
 
 
-async def route_embedding(
+async def aembedding(
     model: str,
     input: list[str],
     **params: Any,
 ) -> EmbeddingResponse:
     """Module-level convenience wrapper around the default client."""
     return await _default_client.aembedding(model, input, **params)
+
+
+async def aresponse(
+    model: str,
+    input: str | list[dict[str, Any]],
+    *,
+    instructions: str | None = None,
+    previous_id: str | None = None,
+    tools: list[ToolDef] | None = None,
+    **params: Any,
+) -> ResponseResult:
+    """Module-level convenience wrapper around the default client."""
+    return await _default_client.aresponse(
+        model,
+        input,
+        instructions=instructions,
+        previous_id=previous_id,
+        tools=tools,
+        **params,
+    )

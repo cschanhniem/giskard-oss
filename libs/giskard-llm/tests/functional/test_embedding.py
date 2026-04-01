@@ -4,7 +4,7 @@ import os
 
 import pytest
 from giskard.llm import LLMClient
-from giskard.llm.errors import LLMError
+from giskard.llm.errors import UnsupportedOperationError
 
 pytestmark = pytest.mark.functional
 
@@ -88,5 +88,5 @@ async def test_embedding_unsupported_anthropic():
         provider="anthropic",
         api_key="os.environ/ANTHROPIC_API_KEY",  # pragma: allowlist secret
     )
-    with pytest.raises(LLMError, match="does not support embeddings"):
+    with pytest.raises(UnsupportedOperationError, match="does not support"):
         await client.aembedding("test-anthropic/claude-3", ["hello"])

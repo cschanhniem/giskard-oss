@@ -4,63 +4,135 @@ These mirror the OpenAI-style response shapes that litellm used,
 so existing code in giskard-agents can consume them with minimal changes.
 """
 
-from typing import Any, Required, TypedDict
+from typing import Any, Literal, Required, TypedDict
 
 from pydantic import BaseModel, Field
 
 
-class ToolCallFunction(BaseModel):
+class _BaseModel(BaseModel):
+    """Shared base for all giskard-llm response models. Defaults model_dump to exclude None fields."""
+
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        kwargs.setdefault("exclude_none", True)
+        return super().model_dump(**kwargs)
+
+
+# -- Tool definition types (input side) ---------------------------------------
+
+
+class FunctionDef(TypedDict):
+    """Schema for a function tool definition."""
+
     name: str
-    arguments: str
+    description: str
+    parameters: dict[str, Any]
 
 
-class ToolCall(BaseModel):
+class ToolDef(TypedDict):
+    """OpenAI-format tool definition accepted by all providers."""
+
+    type: Literal["function"]
+    function: FunctionDef
+
+
+# -- Tool call types (output side) --------------------------------------------
+
+
+class ToolCallFunction(_BaseModel):
+    name: str
+    arguments: dict[str, Any]
+
+
+class ToolCall(_BaseModel):
     id: str
     type: str = "function"
     function: ToolCallFunction
 
 
-class ChoiceMessage(BaseModel):
+# -- Chat Completion types -----------------------------------------------------
+
+
+class ChoiceMessage(_BaseModel):
     role: str | None = None
     content: str | None = None
     tool_calls: list[ToolCall] | None = None
 
-    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
-        return super().model_dump(exclude_none=True, **kwargs)
 
-
-class Choice(BaseModel):
+class Choice(_BaseModel):
     message: ChoiceMessage
     finish_reason: str | None = None
     index: int = 0
 
 
-class Usage(BaseModel):
+class Usage(_BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
 
 
-class CompletionResponse(BaseModel):
+class CompletionResponse(_BaseModel):
     choices: list[Choice]
     model: str | None = None
     usage: Usage | None = None
 
 
-class EmbeddingData(BaseModel):
+# -- Embedding types -----------------------------------------------------------
+
+
+class EmbeddingData(_BaseModel):
     embedding: list[float]
     index: int = 0
 
 
-class EmbeddingUsage(BaseModel):
+class EmbeddingUsage(_BaseModel):
     prompt_tokens: int = 0
     total_tokens: int = 0
 
 
-class EmbeddingResponse(BaseModel):
+class EmbeddingResponse(_BaseModel):
     data: list[EmbeddingData] = Field(default_factory=list)
     model: str | None = None
     usage: EmbeddingUsage | None = None
+
+
+# -- Response / Interaction types (Responses API + Interactions API) -----------
+
+
+class ResponseOutputText(_BaseModel):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class ResponseOutputFunctionCall(_BaseModel):
+    type: Literal["function_call"] = "function_call"
+    call_id: str | None = None
+    name: str
+    arguments: dict[str, Any]
+
+
+# Plain assignment (not `type` statement) so isinstance(x, ResponseOutputItem) works at runtime.
+ResponseOutputItem = ResponseOutputText | ResponseOutputFunctionCall
+
+
+class ResponseResult(_BaseModel):
+    id: str
+    outputs: list[ResponseOutputItem]
+    model: str | None = None
+    usage: Usage | None = None
+
+    @property
+    def output_text(self) -> str | None:
+        """Concatenate all text outputs, or None if there are none."""
+        texts = [o.text for o in self.outputs if isinstance(o, ResponseOutputText)]
+        return "\n".join(texts) if texts else None
+
+    @property
+    def function_calls(self) -> list[ResponseOutputFunctionCall]:
+        """Return all function-call outputs."""
+        return [o for o in self.outputs if isinstance(o, ResponseOutputFunctionCall)]
+
+
+# -- Message types -------------------------------------------------------------
 
 
 class ChatMessage(TypedDict, total=False):

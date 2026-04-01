@@ -166,7 +166,7 @@ async def test_tool_call(provider: str):
     assert choice.message.tool_calls
     tc = choice.message.tool_calls[0]
     assert tc.function.name == "add"
-    args = json.loads(tc.function.arguments)
+    args = tc.function.arguments
     assert "a" in args and "b" in args
 
 
@@ -218,13 +218,8 @@ async def test_response_format(provider: str):
         response_format=ColorModel,
     )
     choice = resp.choices[0]
-
-    if provider == "anthropic":
-        assert choice.message.tool_calls
-        raw_json = choice.message.tool_calls[0].function.arguments
-    else:
-        assert choice.message.content
-        raw_json = choice.message.content
+    assert choice.message.content
+    raw_json = choice.message.content
 
     parsed = json.loads(raw_json)
     assert "name" in parsed

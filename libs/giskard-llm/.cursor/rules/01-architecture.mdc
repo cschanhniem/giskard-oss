@@ -11,7 +11,7 @@ alwaysApply: true
 
 ## Architecture
 
-The public API (`acompletion`, `aembedding`) routes `"provider/model"` strings through a lazy-loading registry to provider implementations. Providers are self-contained modules under `providers/`, each subclassing a shared ABC and responsible for: role mapping, message validation, tool conversion, error mapping, and response normalization.
+The public API (`acompletion`, `aembedding`, `aresponse`) routes `"provider/model"` strings through a lazy-loading registry to provider implementations. Providers are self-contained modules under `providers/`, each conforming to one or more `Protocol` classes (`CompletionProvider`, `EmbeddingProvider`, `ResponseProvider`) and responsible for: role mapping, message validation, tool conversion, error mapping, and response normalization.
 
 Shared contracts live at the package root: Pydantic v2 response types (OpenAI-shaped), a unified error hierarchy with `status_code` for consumer retry logic, and a `should_retry` helper.
 
@@ -26,9 +26,10 @@ Shared contracts live at the package root: Pydantic v2 response types (OpenAI-sh
 
 ## Adding a New Provider
 
-1. Create `providers/<name>.py` subclassing `BaseProvider`.
-2. Register it in the provider registry in `routing.py`.
-3. Add the SDK as an optional dependency extra in `pyproject.toml`.
-4. Implement role mapping, message validation, tool conversion, error mapping, and response conversion.
-5. Write the class docstring following the provider documentation template (see `04-provider-docs.mdc`).
-6. Add unit tests (mocked SDK) and functional test scenarios.
+1. Create `providers/<name>.py` implementing the relevant protocols (`CompletionProvider`, `EmbeddingProvider`, `ResponseProvider`).
+2. Guard SDK imports with `try/except ImportError` and raise `ProviderNotAvailableError`.
+3. Register it in the provider registry in `routing.py`.
+4. Add the SDK as an optional dependency extra in `pyproject.toml`.
+5. Implement role mapping, message validation, tool conversion, error mapping, and response conversion.
+6. Write the class docstring following the provider documentation template (see `04-provider-docs.mdc`).
+7. Add unit tests (mocked SDK) and functional test scenarios.
