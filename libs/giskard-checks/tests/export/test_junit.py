@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -11,19 +9,18 @@ from giskard.checks import (
     SuiteResult,
     Trace,
 )
-from giskard.checks import (
-    TestCaseResult as GiskardTestCaseResult,
-)
 from giskard.checks.export.junit import to_junit_xml
 
 
 def _sample_suite_result() -> SuiteResult:
+    from giskard.checks import TestCaseResult
+
     return SuiteResult(
         results=[
             ScenarioResult(
                 scenario_name="scenario_pass",
                 steps=[
-                    GiskardTestCaseResult(
+                    TestCaseResult(
                         results=[
                             CheckResult(
                                 status=CheckStatus.PASS,
@@ -46,7 +43,7 @@ def _sample_suite_result() -> SuiteResult:
             ScenarioResult(
                 scenario_name="scenario_fail",
                 steps=[
-                    GiskardTestCaseResult(
+                    TestCaseResult(
                         results=[
                             CheckResult(
                                 status=CheckStatus.PASS,
@@ -69,7 +66,7 @@ def _sample_suite_result() -> SuiteResult:
             ScenarioResult(
                 scenario_name="scenario_error",
                 steps=[
-                    GiskardTestCaseResult(
+                    TestCaseResult(
                         results=[
                             CheckResult(
                                 status=CheckStatus.ERROR,
@@ -86,7 +83,7 @@ def _sample_suite_result() -> SuiteResult:
             ScenarioResult(
                 scenario_name="scenario_skip",
                 steps=[
-                    GiskardTestCaseResult(
+                    TestCaseResult(
                         results=[
                             CheckResult(
                                 status=CheckStatus.SKIP,
@@ -132,7 +129,9 @@ def test_to_junit_xml_includes_properties_and_metrics() -> None:
     xml_string = to_junit_xml(_sample_suite_result())
     root = ET.fromstring(xml_string)
 
-    testcases = {testcase.attrib["name"]: testcase for testcase in root.findall("testcase")}
+    testcases = {
+        testcase.attrib["name"]: testcase for testcase in root.findall("testcase")
+    }
     pass_case = testcases["scenario_pass"]
 
     properties = pass_case.find("properties")
@@ -152,7 +151,9 @@ def test_to_junit_xml_maps_failure_error_and_skip() -> None:
     xml_string = to_junit_xml(_sample_suite_result())
     root = ET.fromstring(xml_string)
 
-    testcases = {testcase.attrib["name"]: testcase for testcase in root.findall("testcase")}
+    testcases = {
+        testcase.attrib["name"]: testcase for testcase in root.findall("testcase")
+    }
 
     failure = testcases["scenario_fail"].find("failure")
     assert failure is not None
@@ -191,16 +192,21 @@ def test_suite_result_convenience_method_matches_function() -> None:
 
     assert root_from_method.tag == root_from_function.tag
     assert root_from_method.attrib["tests"] == root_from_function.attrib["tests"]
-    assert root_from_method.attrib["assertions"] == root_from_function.attrib["assertions"]
+    assert (
+        root_from_method.attrib["assertions"]
+        == root_from_function.attrib["assertions"]
+    )
 
 
 def test_failed_scenario_with_mixed_check_statuses_is_still_a_failure() -> None:
+    from giskard.checks import TestCaseResult
+
     suite_result = SuiteResult(
         results=[
             ScenarioResult(
                 scenario_name="scenario_mixed",
                 steps=[
-                    GiskardTestCaseResult(
+                    TestCaseResult(
                         results=[
                             CheckResult(
                                 status=CheckStatus.FAIL,
@@ -232,5 +238,7 @@ def test_failed_scenario_with_mixed_check_statuses_is_still_a_failure() -> None:
 
     system_out = testcase.find("system-out")
     assert system_out is not None
-    assert "[FAIL] step_1.CheckA: hard failure" in (system_out.text or "")
-    assert "[SKIP] step_1.CheckB: skipped follow-up" in (system_out.text or "")
+    assert system_out.text is not None
+    assert system_out.text.strip() != ""
+    assert "final_trace=" not in system_out.text
+    assert "step_1=" not in system_out.text

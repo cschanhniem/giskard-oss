@@ -1,10 +1,11 @@
-from __future__ import annotations
-
 import json
 from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
+
+from rich.console import Console
 
 from ..core.result import CheckResult, ScenarioResult, SuiteResult
 
@@ -55,7 +56,11 @@ def _suite_counts(result: SuiteResult) -> tuple[int, int, int, int]:
 
 
 def _matching_checks(
-    scenario: ScenarioResult[Any], *, failed: bool = False, errored: bool = False, skipped: bool = False
+    scenario: ScenarioResult[Any],
+    *,
+    failed: bool = False,
+    errored: bool = False,
+    skipped: bool = False,
 ) -> list[tuple[int, int, CheckResult]]:
     matches: list[tuple[int, int, CheckResult]] = []
     for step_index, check_index, check in _iter_checks(scenario):
@@ -69,18 +74,13 @@ def _matching_checks(
 
 
 def _build_detail_text(
-    scenario: ScenarioResult[Any], matches: list[tuple[int, int, CheckResult]]
+    scenario: ScenarioResult[Any],
+    matches: list[tuple[int, int, CheckResult]],
 ) -> str:
     lines = [
         f"scenario={scenario.scenario_name}",
         "See testcase properties for final_trace and step payloads.",
     ]
-
-    seen_steps: set[int] = set()
-    for step_index, _, _ in matches:
-        if step_index not in seen_steps:
-            lines.append(f"step_{step_index}=see property")
-            seen_steps.add(step_index)
 
     for step_index, check_index, check in matches:
         label = _check_label(check, f"check_{check_index}")
@@ -156,25 +156,25 @@ def _append_status_node(testcase_el: ET.Element, scenario: ScenarioResult[Any]) 
         node.text = _build_detail_text(scenario, matches)
 
 
-def _append_system_out(testcase_el: ET.Element, scenario: ScenarioResult[Any]) -> None:
-    lines = [
-        f"scenario={scenario.scenario_name}",
-        f"steps={len(scenario.steps)}",
-        f"assertions={_scenario_assertions(scenario)}",
-        "See testcase properties for final_trace and step payloads.",
-    ]
+def _render_scenario_report(scenario: ScenarioResult[Any]) -> str:
+    buffer = StringIO()
+    console = Console(
+        file=buffer,
+        force_terminal=False,
+        no_color=True,
+        width=120,
+    )
+    scenario.print_report(console)
+    return buffer.getvalue().rstrip()
 
-    for step_index, step in enumerate(scenario.steps, start=1):
-        lines.append(f"step_{step_index}: {len(step.results)} checks")
-        for check_index, check in enumerate(step.results, start=1):
-            label = _check_label(check, f"check_{check_index}")
-            message = check.message or ""
-            lines.append(
-                f"[{check.status.value.upper()}] step_{step_index}.{label}: {message}"
-            )
+
+def _append_system_out(testcase_el: ET.Element, scenario: ScenarioResult[Any]) -> None:
+    report = _render_scenario_report(scenario)
+    if not report:
+        return
 
     system_out = ET.SubElement(testcase_el, "system-out")
-    system_out.text = "\n".join(lines)
+    system_out.text = report
 
 
 def to_junit_xml(result: SuiteResult, path: str | Path | None = None) -> str:
