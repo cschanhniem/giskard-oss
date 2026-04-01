@@ -23,12 +23,19 @@ Tool call format:
     - Tool call IDs: synthetic (``call_0``, ``call_1``, ...) since Gemini
       doesn't provide them
 
-Error mapping:
-    - ``google.genai.errors.ClientError`` (401/403 or API_KEY_INVALID) -> ``AuthenticationError``
-    - ``google.genai.errors.ClientError`` (429) -> ``RateLimitError``
-    - ``google.genai.errors.ClientError`` (other) -> ``BadRequestError``
-    - ``google.genai.errors.ServerError`` -> ``ServerError``
-    - ``google.genai.errors.APIError`` -> ``LLMError``
+Error mapping (standard ``google.genai.errors``):
+    - ``ClientError`` (401/403 or API_KEY_INVALID) -> ``AuthenticationError``
+    - ``ClientError`` (429) -> ``RateLimitError``
+    - ``ClientError`` (other) -> ``BadRequestError``
+    - ``ServerError`` -> ``ServerError``
+    - ``APIError`` -> ``LLMError``
+
+Error mapping (Interactions API ``google.genai._interactions``):
+    - ``AuthenticationError`` / ``PermissionDeniedError`` -> ``AuthenticationError``
+    - ``RateLimitError`` -> ``RateLimitError``
+    - ``InternalServerError`` -> ``ServerError``
+    - ``APIStatusError`` (other) -> ``BadRequestError``
+    - ``APIConnectionError`` -> ``LLMError``
 
 Supported features:
     - Completion: yes
@@ -45,7 +52,7 @@ import json
 import logging
 import os
 from collections.abc import Sequence
-from typing import Any, NoReturn, cast
+from typing import Any, NoReturn
 
 from pydantic import BaseModel
 
@@ -65,7 +72,6 @@ from ..types import (
     CompletionResponse,
     EmbeddingData,
     EmbeddingResponse,
-    FunctionCallOutput,
     ResponseOutputFunctionCall,
     ResponseOutputText,
     ResponseResult,
@@ -113,6 +119,15 @@ def _import_genai_errors() -> Any:
         raise ProviderNotAvailableError(PROVIDER, "google-genai") from exc
 
 
+def _import_interactions_errors() -> Any:
+    try:
+        from google.genai import _interactions
+
+        return _interactions
+    except (ImportError, AttributeError):
+        return None
+
+
 class GoogleProvider:
     def __init__(
         self,
@@ -132,7 +147,12 @@ class GoogleProvider:
         self._client = genai.Client(api_key=resolved_key)
 
     def _map_error(self, e: Exception) -> NoReturn:
-        """Map a ``google.genai`` SDK exception to the giskard error hierarchy."""
+        """Map a ``google.genai`` SDK exception to the giskard error hierarchy.
+
+        Handles both the standard ``google.genai.errors`` hierarchy (used by
+        Chat Completions / Embeddings) and the separate
+        ``google.genai._interactions`` hierarchy (used by Interactions API).
+        """
         genai_errors = _import_genai_errors()
         if isinstance(e, genai_errors.ClientError):
             status = getattr(e, "code", 400)
@@ -145,6 +165,23 @@ class GoogleProvider:
             raise ServerError(getattr(e, "code", 500), str(e), PROVIDER) from e
         if isinstance(e, genai_errors.APIError):
             raise LLMError(getattr(e, "code", 500), str(e), PROVIDER) from e
+
+        ix = _import_interactions_errors()
+        if ix is not None:
+            status = getattr(e, "status_code", 0)
+            if isinstance(e, ix.AuthenticationError) or isinstance(
+                e, ix.PermissionDeniedError
+            ):
+                raise AuthenticationError(status or 401, str(e), PROVIDER) from e
+            if isinstance(e, ix.RateLimitError):
+                raise RateLimitError(status or 429, str(e), PROVIDER) from e
+            if isinstance(e, ix.InternalServerError):
+                raise ServerError(status or 500, str(e), PROVIDER) from e
+            if isinstance(e, ix.APIStatusError):
+                raise BadRequestError(status or 400, str(e), PROVIDER) from e
+            if isinstance(e, ix.APIConnectionError):
+                raise LLMError(0, str(e), PROVIDER) from e
+
         if "timed out" in str(e).lower() or "timeout" in type(e).__name__.lower():
             raise LLMTimeoutError(408, str(e), PROVIDER) from e
         raise e
@@ -424,12 +461,7 @@ class GoogleProvider:
             )
 
         if isinstance(input, list):
-            input = [
-                self._normalize_input_item(cast(FunctionCallOutput, item))  # pyright: ignore[reportInvalidCast]
-                if item.get("type") == "function_call_output"
-                else item
-                for item in input
-            ]
+            input = [self._normalize_input_item(item) for item in input]
 
         kwargs: dict[str, Any] = {"model": model, "input": input}
         if instructions is not None:
@@ -449,14 +481,22 @@ class GoogleProvider:
 
         return self._to_response_result(raw, model)
 
-    def _normalize_input_item(self, item: FunctionCallOutput) -> dict[str, Any]:
-        """Convert a FunctionCallOutput to Google function_result format."""
-        return {
-            "type": "function_result",
-            "name": item["name"],
-            "call_id": item["call_id"],
-            "result": item["output"],
-        }
+    def _normalize_input_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Normalize an input item for the Google Interactions API.
+
+        - ``function_call_output`` → ``function_result`` format
+        - ``role: "assistant"`` → ``role: "model"`` (Google-expected role name)
+        """
+        if item.get("type") == "function_call_output":
+            return {
+                "type": "function_result",
+                "name": item["name"],
+                "call_id": item["call_id"],
+                "result": item["output"],
+            }
+        if item.get("role") == "assistant":
+            return {**item, "role": "model"}
+        return item
 
     def _to_response_result(self, raw: Any, model: str) -> ResponseResult:
         outputs: list[ResponseOutputText | ResponseOutputFunctionCall] = []
