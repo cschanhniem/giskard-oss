@@ -10,6 +10,7 @@ import os
 import pytest
 from giskard.llm import LLMClient
 from giskard.llm.errors import BadRequestError
+from giskard.llm.types import ToolDef
 from pydantic import BaseModel
 
 pytestmark = pytest.mark.functional
@@ -135,7 +136,7 @@ async def test_empty_messages_raises(provider: str):
 # -- Tool call scenarios ------------------------------------------------------
 
 
-ADD_TOOL = {
+ADD_TOOL: ToolDef = {
     "type": "function",
     "function": {
         "name": "add",

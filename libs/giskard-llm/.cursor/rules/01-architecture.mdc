@@ -15,6 +15,10 @@ The public API (`acompletion`, `aembedding`, `aresponse`) routes `"provider/mode
 
 Shared contracts live at the package root: Pydantic v2 response types (OpenAI-shaped), a unified error hierarchy with `status_code` for consumer retry logic, and a `should_retry` helper.
 
+## Type Conventions
+
+Input types (messages, tool definitions, tool results) use `TypedDict` — lightweight, constructed with dict literals. Output types (responses, tool calls, embeddings) use Pydantic `_BaseModel` — attribute access, `.model_dump()`, validation on construction. See `docs/design.md` for rationale.
+
 ## Core Principles
 
 1. **Lazy imports.** Importing `giskard.llm` must never require any provider SDK. SDKs are imported inside provider modules only.

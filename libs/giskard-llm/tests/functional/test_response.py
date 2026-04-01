@@ -8,8 +8,8 @@ import os
 
 import pytest
 from giskard.llm import LLMClient
-from giskard.llm.errors import UnsupportedOperationError
-from giskard.llm.types import ResponseOutputFunctionCall
+from giskard.llm.errors import LLMError, UnsupportedOperationError
+from giskard.llm.types import ResponseOutputFunctionCall, ToolDef
 
 pytestmark = pytest.mark.functional
 
@@ -17,7 +17,7 @@ pytestmark = pytest.mark.functional
 
 _RESPONSE_MODELS = {
     "openai": os.getenv("TEST_OPENAI_MODEL", "openai/gpt-4.1-nano"),
-    "google": os.getenv("TEST_GOOGLE_MODEL", "google/gemini-2.0-flash"),
+    "google": os.getenv("TEST_GOOGLE_MODEL", "google/gemini-2.5-flash"),
 }
 
 _CONFIGURE_PARAMS = {  # pragma: allowlist secret
@@ -75,7 +75,7 @@ async def test_respond_with_instructions(provider: str):
 
 # -- Tool call scenario -------------------------------------------------------
 
-_ADD_TOOL = {
+_ADD_TOOL: ToolDef = {
     "type": "function",
     "function": {
         "name": "add",
@@ -130,6 +130,114 @@ async def test_respond_stateful_turn(provider: str):
     )
     assert resp2.output_text is not None
     assert "zephyr" in resp2.output_text.lower()
+
+
+# -- Multi-turn list[dict] input scenario -------------------------------------
+
+
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_respond_multi_turn_input(provider: str):
+    """List-of-dicts input (multi-turn conversation) -> valid response."""
+    client, model = _make_client(provider)
+    resp = await client.aresponse(
+        model,
+        [
+            {"role": "user", "content": "My favorite color is blue."},
+            {"role": "assistant", "content": "Got it, blue!"},
+            {"role": "user", "content": "What is my favorite color?"},
+        ],
+    )
+    assert resp.id
+    assert resp.output_text is not None
+    assert "blue" in resp.output_text.lower()
+
+
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_respond_chained_multi_turn(provider: str):
+    """Multiple list[dict] calls chained via previous_id."""
+    client, model = _make_client(provider)
+
+    resp1 = await client.aresponse(
+        model,
+        [{"role": "user", "content": "Remember: the secret word is MANGO."}],
+        instructions="You are a helpful assistant with perfect memory.",
+    )
+    assert resp1.id
+
+    resp2 = await client.aresponse(
+        model,
+        [{"role": "user", "content": "Now remember: my lucky number is 42."}],
+        previous_id=resp1.id,
+    )
+    assert resp2.id
+
+    resp3 = await client.aresponse(
+        model,
+        [{"role": "user", "content": "What is the secret word and my lucky number?"}],
+        previous_id=resp2.id,
+    )
+    assert resp3.output_text is not None
+    text = resp3.output_text.lower()
+    assert "mango" in text
+    assert "42" in text
+
+
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_respond_stateful_with_tool_result(provider: str):
+    """Stateful turn with list[dict] input feeding back a tool result."""
+    client, model = _make_client(provider)
+
+    resp1 = await client.aresponse(
+        model,
+        "What is 3+4? Use the add tool.",
+        tools=[_ADD_TOOL],
+    )
+    assert resp1.id
+    fc_outputs = resp1.function_calls
+    assert len(fc_outputs) > 0
+
+    fc = fc_outputs[0]
+    resp2 = await client.aresponse(
+        model,
+        [
+            {
+                "type": "function_call_output",
+                "call_id": fc.call_id or "call_0",
+                "name": fc.name,
+                "output": "7",
+            },
+        ],
+        previous_id=resp1.id,
+    )
+    assert resp2.id
+    assert resp2.output_text is not None
+    assert "7" in resp2.output_text
+
+
+# -- Usage fields scenario ----------------------------------------------------
+
+
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_respond_usage_populated(provider: str):
+    """Response includes usage with non-negative token counts."""
+    client, model = _make_client(provider)
+    resp = await client.aresponse(model, "Say one word.")
+    assert resp.usage is not None
+    assert resp.usage.prompt_tokens >= 0
+    assert resp.usage.completion_tokens >= 0
+    assert resp.usage.total_tokens >= resp.usage.prompt_tokens
+
+
+# -- Error path scenario ------------------------------------------------------
+
+
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_respond_invalid_model_raises(provider: str):
+    """Non-existent model name -> LLMError from _map_error."""
+    client, model = _make_client(provider)
+    alias = model.split("/", 1)[0]
+    with pytest.raises(LLMError):
+        await client.aresponse(f"{alias}/nonexistent-model-xyz-999", "Hello")
 
 
 # -- Unsupported provider scenario --------------------------------------------

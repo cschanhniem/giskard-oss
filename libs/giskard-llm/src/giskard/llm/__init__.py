@@ -21,6 +21,7 @@ from .types import (
     EmbeddingData,
     EmbeddingResponse,
     EmbeddingUsage,
+    FunctionCallOutput,
     FunctionDef,
     ResponseOutputFunctionCall,
     ResponseOutputItem,
@@ -57,6 +58,7 @@ __all__ = [
     "ToolCallFunction",
     "ToolDef",
     "FunctionDef",
+    "FunctionCallOutput",
     # Types — Embedding
     "EmbeddingResponse",
     "EmbeddingData",

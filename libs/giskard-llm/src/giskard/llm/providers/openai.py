@@ -258,9 +258,7 @@ class OpenAIProvider:
                         type=tc.type,
                         function=ToolCallFunction(
                             name=tc.function.name,
-                            arguments=json.loads(tc.function.arguments)
-                            if isinstance(tc.function.arguments, str)
-                            else tc.function.arguments,
+                            arguments=tc.function.arguments,
                         ),
                     )
                     for tc in c.message.tool_calls
@@ -332,7 +330,7 @@ class OpenAIProvider:
         if previous_id is not None:
             kwargs["previous_response_id"] = previous_id
         if tools is not None:
-            kwargs["tools"] = tools
+            kwargs["tools"] = [{"type": "function", **t["function"]} for t in tools]
         if params.get("temperature") is not None:
             kwargs["temperature"] = params["temperature"]
         if params.get("max_tokens") is not None:

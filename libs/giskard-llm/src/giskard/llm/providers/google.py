@@ -45,7 +45,7 @@ import json
 import logging
 import os
 from collections.abc import Sequence
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 from pydantic import BaseModel
 
@@ -65,6 +65,7 @@ from ..types import (
     CompletionResponse,
     EmbeddingData,
     EmbeddingResponse,
+    FunctionCallOutput,
     ResponseOutputFunctionCall,
     ResponseOutputText,
     ResponseResult,
@@ -362,7 +363,9 @@ class GoogleProvider:
                                 type="function",
                                 function=ToolCallFunction(
                                     name=fc.name,
-                                    arguments=dict(fc.args) if fc.args else {},
+                                    arguments=json.dumps(dict(fc.args))
+                                    if fc.args
+                                    else "{}",
                                 ),
                             )
                         )
@@ -420,13 +423,21 @@ class GoogleProvider:
                 sorted(unknown),
             )
 
+        if isinstance(input, list):
+            input = [
+                self._normalize_input_item(cast(FunctionCallOutput, item))  # pyright: ignore[reportInvalidCast]
+                if item.get("type") == "function_call_output"
+                else item
+                for item in input
+            ]
+
         kwargs: dict[str, Any] = {"model": model, "input": input}
         if instructions is not None:
             kwargs["system_instruction"] = instructions
         if previous_id is not None:
             kwargs["previous_interaction_id"] = previous_id
         if tools is not None:
-            kwargs["tools"] = tools
+            kwargs["tools"] = [{"type": "function", **t["function"]} for t in tools]
         if params.get("temperature") is not None:
             kwargs["generation_config"] = kwargs.get("generation_config", {})
             kwargs["generation_config"]["temperature"] = params["temperature"]
@@ -437,6 +448,15 @@ class GoogleProvider:
             self._map_error(e)
 
         return self._to_response_result(raw, model)
+
+    def _normalize_input_item(self, item: FunctionCallOutput) -> dict[str, Any]:
+        """Convert a FunctionCallOutput to Google function_result format."""
+        return {
+            "type": "function_result",
+            "name": item["name"],
+            "call_id": item["call_id"],
+            "result": item["output"],
+        }
 
     def _to_response_result(self, raw: Any, model: str) -> ResponseResult:
         outputs: list[ResponseOutputText | ResponseOutputFunctionCall] = []

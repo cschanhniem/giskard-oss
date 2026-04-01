@@ -351,9 +351,9 @@ class AnthropicProvider:
                         type="function",
                         function=ToolCallFunction(
                             name=block.name,
-                            arguments=block.input
+                            arguments=json.dumps(block.input)
                             if isinstance(block.input, dict)
-                            else json.loads(block.input),
+                            else block.input,
                         ),
                     )
                 )

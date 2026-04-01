@@ -35,12 +35,21 @@ class ToolDef(TypedDict):
     function: FunctionDef
 
 
+class FunctionCallOutput(TypedDict):
+    """Canonical format for feeding back a tool result to respond()."""
+
+    type: Literal["function_call_output"]
+    call_id: str
+    name: str
+    output: str
+
+
 # -- Tool call types (output side) --------------------------------------------
 
 
 class ToolCallFunction(_BaseModel):
     name: str
-    arguments: dict[str, Any]
+    arguments: str
 
 
 class ToolCall(_BaseModel):
