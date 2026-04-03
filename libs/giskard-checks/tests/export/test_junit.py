@@ -1,9 +1,11 @@
+import json
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from giskard.checks import (
     CheckResult,
     CheckStatus,
+    Interaction,
     Metric,
     ScenarioResult,
     SuiteResult,
@@ -102,6 +104,87 @@ def _sample_suite_result() -> SuiteResult:
     )
 
 
+def test_to_junit_xml_empty_suite() -> None:
+    suite = SuiteResult(results=[], duration_ms=0)
+    xml_string = to_junit_xml(suite)
+    root = ET.fromstring(xml_string)
+
+    assert root.tag == "testsuite"
+    assert root.attrib["tests"] == "0"
+    assert root.attrib["failures"] == "0"
+    assert root.attrib["errors"] == "0"
+    assert root.attrib["skipped"] == "0"
+    assert root.attrib["assertions"] == "0"
+    assert root.findall("testcase") == []
+
+
+def test_to_junit_xml_trace_with_xml_like_content_stays_well_formed(
+    tmp_path: Path,
+) -> None:
+    """Angle brackets and ampersands in trace must not break JUnit XML output."""
+    from giskard.checks import TestCaseResult
+
+    xml_like = '<response><content id="1">a & b</content></response>'
+    suite = SuiteResult(
+        results=[
+            ScenarioResult(
+                scenario_name="with_markup",
+                steps=[
+                    TestCaseResult(
+                        results=[
+                            CheckResult.success(
+                                message="ok",
+                                details={"check_name": "SanityCheck"},
+                            ),
+                        ],
+                        duration_ms=1,
+                    )
+                ],
+                duration_ms=1,
+                final_trace=Trace(
+                    interactions=[
+                        Interaction(
+                            inputs="question with <tag>",
+                            outputs=xml_like,
+                        )
+                    ]
+                ),
+            )
+        ],
+        duration_ms=1,
+    )
+
+    xml_string = to_junit_xml(suite)
+    root = ET.fromstring(xml_string)
+
+    testcase = root.find("testcase")
+    assert testcase is not None
+
+    final_trace_value: str | None = None
+    properties = testcase.find("properties")
+    assert properties is not None
+    for prop in properties.findall("property"):
+        if prop.attrib.get("name") == "final_trace":
+            final_trace_value = prop.attrib.get("value")
+            break
+    assert final_trace_value is not None
+    trace_payload = json.loads(final_trace_value)
+    assert trace_payload["interactions"][0]["outputs"] == xml_like
+    assert trace_payload["interactions"][0]["inputs"] == "question with <tag>"
+
+    system_out = testcase.find("system-out")
+    assert system_out is not None
+    assert system_out.text is not None
+    assert xml_like in system_out.text
+    assert "<tag>" in system_out.text
+
+    output_path = tmp_path / "junit-with-markup.xml"
+    _xml_again = to_junit_xml(suite, path=output_path)
+    assert "with_markup" in _xml_again
+    written = ET.parse(output_path)
+    assert written.getroot().tag == "testsuite"
+
+
 def test_to_junit_xml_builds_valid_xml() -> None:
     xml_string = to_junit_xml(_sample_suite_result())
     root = ET.fromstring(xml_string)
@@ -193,8 +276,7 @@ def test_suite_result_convenience_method_matches_function() -> None:
     assert root_from_method.tag == root_from_function.tag
     assert root_from_method.attrib["tests"] == root_from_function.attrib["tests"]
     assert (
-        root_from_method.attrib["assertions"]
-        == root_from_function.attrib["assertions"]
+        root_from_method.attrib["assertions"] == root_from_function.attrib["assertions"]
     )
 
 
