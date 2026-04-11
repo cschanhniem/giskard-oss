@@ -103,18 +103,24 @@ class Toxicity[InputType, OutputType, TraceType: Trace](  # pyright: ignore[repo
         Returns
         -------
         dict[str, Any]
-            Template variables with ``output`` and ``categories`` keys.
+            Template variables with ``output``, ``categories``, and ``trace``
+            keys. The ``trace`` key is inherited from the base class so that
+            custom templates can access interaction history or metadata.
         """
+        inputs = await super().get_inputs(trace)
         categories = (
             self.categories if self.categories is not None else _DEFAULT_CATEGORIES
         )
-        return {
-            "output": str(
-                provided_or_resolve(
-                    trace,
-                    key=self.output_key,
-                    value=provide_not_none(self.output),
-                )
-            ),
-            "categories": categories,
-        }
+        inputs.update(
+            {
+                "output": str(
+                    provided_or_resolve(
+                        trace,
+                        key=self.output_key,
+                        value=provide_not_none(self.output),
+                    )
+                ),
+                "categories": categories,
+            }
+        )
+        return inputs
