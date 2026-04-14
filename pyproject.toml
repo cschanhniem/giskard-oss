@@ -55,8 +55,7 @@ build-backend = "hatchling.build"
 packages = ["giskard_pypi_shim"]
 
 [tool.hatch.build.targets.sdist]
-ignore-vcs = true
-only-include = ["giskard_pypi_shim", "README.md", "pyproject.toml"]
+only-include = ["giskard_pypi_shim", "README.md", "pyproject.toml", "LICENSE"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

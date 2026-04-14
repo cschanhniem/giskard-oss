@@ -149,10 +149,11 @@ jobs:
       - name: Commit version bump
         env:
           NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+          PYPROJECT_PATH: ${{ steps.pkg.outputs.pyproject }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "${{ steps.pkg.outputs.pyproject }}" "uv.lock"
+          git add "$PYPROJECT_PATH" "uv.lock"
           git commit -m "chore($PACKAGE): bump version to $NEW_VERSION"
 
       - name: Push to main
@@ -182,12 +183,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.bump.outputs.tag }}
           NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+          DIST_ROOT: ${{ steps.pkg.outputs.dist_root }}
         run: |
           gh release create "$TAG" \
             --title "$PACKAGE v$NEW_VERSION" \
             --generate-notes \
-            "${{ steps.pkg.outputs.dist_root }}"/*.tar.gz \
-            "${{ steps.pkg.outputs.dist_root }}"/*.whl
+            "$DIST_ROOT"/*.tar.gz \
+            "$DIST_ROOT"/*.whl
 
       - name: Push to PyPI
         if: ${{ github.event.inputs.dry_run == 'false' }}
