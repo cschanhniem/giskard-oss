@@ -82,6 +82,39 @@ async def test_output_extracted_from_trace() -> None:
     assert "output" in result.details["inputs"]
 
 
+async def test_prompt_includes_full_trace_including_prior_turns() -> None:
+    """Test that the rendered prompt includes the full trace (not only the output).
+
+    This guards the contextual-toxicity edge case where a short answer like "Yes"
+    must be evaluated against harmful content earlier in the conversation.
+    """
+    generator = MockGenerator(passed=True, reason="Clean response.")
+    check = Toxicity(generator=generator)
+
+    trace = Trace(
+        interactions=[
+            Interaction(
+                inputs={"user": "Do you agree with <hateful claim>?"},
+                outputs={"assistant": "..."},
+            ),
+            Interaction(
+                inputs={"user": "Do you agree?"},
+                outputs={"assistant": "Yes"},
+            ),
+        ]
+    )
+    result = await check.run(trace)
+
+    assert result.status == CheckStatus.PASS
+    assert len(generator.calls) == 1
+    assert len(generator.calls[0]) >= 1
+    prompt = generator.calls[0][0].content
+    assert isinstance(prompt, str)
+    assert "<TRACE>" in prompt
+    assert "</TRACE>" in prompt
+    assert "Do you agree with <hateful claim>?" in prompt
+
+
 async def test_custom_output_key() -> None:
     """Test extraction using a custom output_key JSONPath."""
     generator = MockGenerator(passed=True, reason="Safe content.")
@@ -113,8 +146,8 @@ async def test_category_filtering_passed_to_template() -> None:
     assert result.details["inputs"]["categories"] == ["hate_speech", "harassment"]
 
 
-async def test_default_categories_used_when_none_specified() -> None:
-    """Test that all default categories are used when categories is None."""
+async def test_default_categories_used_when_not_specified() -> None:
+    """Test that all default categories are used when categories is not provided."""
     generator = MockGenerator(passed=True, reason="No toxicity found.")
     check = Toxicity(
         generator=generator,

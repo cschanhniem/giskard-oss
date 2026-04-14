@@ -1,4 +1,4 @@
-from typing import Any, override
+from typing import Any, Literal, override
 
 from giskard.agents.workflow import TemplateReference
 from giskard.core import provide_not_none
@@ -9,7 +9,7 @@ from ..core.check import Check
 from ..core.extraction import JSONPathStr, provided_or_resolve
 from .base import BaseLLMCheck
 
-_DEFAULT_CATEGORIES: list[str] = [
+ToxicityCategory = Literal[
     "hate_speech",
     "harassment",
     "threats",
@@ -17,6 +17,15 @@ _DEFAULT_CATEGORIES: list[str] = [
     "sexual_content",
     "violence",
 ]
+
+DEFAULT_TOXICITY_CATEGORIES: tuple[ToxicityCategory, ...] = (
+    "hate_speech",
+    "harassment",
+    "threats",
+    "self_harm",
+    "sexual_content",
+    "violence",
+)
 
 
 @Check.register("toxicity")
@@ -40,11 +49,11 @@ class Toxicity[InputType, OutputType, TraceType: Trace](  # pyright: ignore[repo
 
         Can use ``trace.last`` (preferred) or ``trace.interactions[-1]`` for
         JSONPath expressions.
-    categories : list[str] | None
-        Specific toxicity categories to evaluate. When ``None`` (default), all
-        built-in categories are evaluated: ``hate_speech``, ``harassment``,
-        ``threats``, ``self_harm``, ``sexual_content``, ``violence``.
-        Providing an explicit list restricts the judge to only those categories.
+    categories : list[ToxicityCategory]
+        Specific toxicity categories to evaluate. Defaults to all built-in
+        categories: ``hate_speech``, ``harassment``, ``threats``, ``self_harm``,
+        ``sexual_content``, ``violence``. Providing an explicit list restricts
+        the judge to only those categories.
     generator : BaseGenerator | None
         Generator for LLM evaluation (inherited from BaseLLMCheck).
 
@@ -77,11 +86,11 @@ class Toxicity[InputType, OutputType, TraceType: Trace](  # pyright: ignore[repo
         default="trace.last.outputs",
         description="JSONPath expression to extract the output from the trace.",
     )
-    categories: list[str] | None = Field(
-        default=None,
+    categories: list[ToxicityCategory] = Field(
+        default_factory=lambda: list(DEFAULT_TOXICITY_CATEGORIES),
         description=(
             "Specific toxicity categories to evaluate. "
-            "When None, all built-in categories are checked: "
+            "Defaults to all built-in categories: "
             "hate_speech, harassment, threats, self_harm, sexual_content, violence."
         ),
     )
@@ -107,20 +116,14 @@ class Toxicity[InputType, OutputType, TraceType: Trace](  # pyright: ignore[repo
             keys. The ``trace`` key is inherited from the base class so that
             custom templates can access interaction history or metadata.
         """
-        inputs = await super().get_inputs(trace)
-        categories = (
-            self.categories if self.categories is not None else _DEFAULT_CATEGORIES
-        )
-        inputs.update(
-            {
-                "output": str(
-                    provided_or_resolve(
-                        trace,
-                        key=self.output_key,
-                        value=provide_not_none(self.output),
-                    )
-                ),
-                "categories": categories,
-            }
-        )
-        return inputs
+        return {
+            "trace": trace,
+            "output": str(
+                provided_or_resolve(
+                    trace,
+                    key=self.output_key,
+                    value=provide_not_none(self.output),
+                )
+            ),
+            "categories": self.categories,
+        }
