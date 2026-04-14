@@ -8,6 +8,7 @@ on:
         required: true
         type: choice
         options:
+          - giskard
           - giskard-core
           - giskard-agents
           - giskard-checks
@@ -99,9 +100,22 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: make test
 
+      - name: Resolve package paths
+        id: pkg
+        run: |
+          if [ "$PACKAGE" = "giskard" ]; then
+            echo "dir=." >> "$GITHUB_OUTPUT"
+            echo "pyproject=pyproject.toml" >> "$GITHUB_OUTPUT"
+            echo "dist_root=dist" >> "$GITHUB_OUTPUT"
+          else
+            echo "dir=libs/${PACKAGE}" >> "$GITHUB_OUTPUT"
+            echo "pyproject=libs/${PACKAGE}/pyproject.toml" >> "$GITHUB_OUTPUT"
+            echo "dist_root=libs/${PACKAGE}/dist" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Bump version
         id: bump
-        working-directory: libs/${{ env.PACKAGE }}
+        working-directory: ${{ steps.pkg.outputs.dir }}
         run: |
           CMD=("uv" "version")
 
@@ -128,7 +142,7 @@ jobs:
         run: uv lock
 
       - name: Build package
-        working-directory: libs/${{ env.PACKAGE }}
+        working-directory: ${{ steps.pkg.outputs.dir }}
         run: |
           uv build --out-dir dist
 
@@ -138,7 +152,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "libs/${PACKAGE}/pyproject.toml" "uv.lock"
+          git add "${{ steps.pkg.outputs.pyproject }}" "uv.lock"
           git commit -m "chore($PACKAGE): bump version to $NEW_VERSION"
 
       - name: Push to main
@@ -172,10 +186,10 @@ jobs:
           gh release create "$TAG" \
             --title "$PACKAGE v$NEW_VERSION" \
             --generate-notes \
-            libs/"$PACKAGE"/dist/*.tar.gz \
-            libs/"$PACKAGE"/dist/*.whl
+            "${{ steps.pkg.outputs.dist_root }}"/*.tar.gz \
+            "${{ steps.pkg.outputs.dist_root }}"/*.whl
 
       - name: Push to PyPI
         if: ${{ github.event.inputs.dry_run == 'false' }}
-        working-directory: libs/${{ env.PACKAGE }}
+        working-directory: ${{ steps.pkg.outputs.dir }}
         run: uv publish

@@ -690,7 +690,7 @@ wheels = [
 [[package]]
 name = "giskard"
 version = "3.0.0a1"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "giskard-agents" },
     { name = "giskard-checks" },
