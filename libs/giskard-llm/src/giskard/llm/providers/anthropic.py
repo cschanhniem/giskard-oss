@@ -201,13 +201,13 @@ class AnthropicProvider:
 
         non_system = [m for m in messages if m.get("role") != "system"]
         for i in range(1, len(non_system)):
-            # Normalize "tool" → "user" for alternation: consecutive tool
-            # messages are valid because they merge into a single user message.
             prev_role = non_system[i - 1].get("role")
             curr_role = non_system[i].get("role")
-            eff_prev = "user" if prev_role == "tool" else prev_role
-            eff_curr = "user" if curr_role == "tool" else curr_role
-            if eff_prev == eff_curr:
+            # Skip: consecutive tool messages are valid (they merge into
+            # a single user message with multiple tool_result blocks).
+            if prev_role == "tool" or curr_role == "tool":
+                continue
+            if prev_role == curr_role:
                 raise BadRequestError(
                     400,
                     f"Anthropic requires alternating user/assistant messages, "
