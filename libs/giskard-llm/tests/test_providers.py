@@ -231,14 +231,6 @@ def _make_httpx_sdk_exc(cls: type) -> Exception:
     return cls(message="test", response=resp, body=None)  # type: ignore[call-arg]
 
 
-_KNOWN_MAP_ERROR_BUGS: set[str] = {
-    # APIConnectionError has no status_code attr; the catch-all crashes with AttributeError
-    "openai.APIConnectionError",
-    # _interactions.APIResponseValidationError isn't matched by any branch; falls through
-    "google._interactions.APIResponseValidationError",
-}
-
-
 @pytest.mark.openai
 def test_openai_map_error_completeness():
     """Every openai.APIError subclass must be mapped to an LLMError."""
@@ -246,11 +238,6 @@ def test_openai_map_error_completeness():
 
     provider = _make_openai_provider()
     for exc_cls in _all_subclasses(openai.APIError):
-        key = f"openai.{exc_cls.__name__}"
-        if key in _KNOWN_MAP_ERROR_BUGS:
-            with pytest.raises(Exception):
-                provider._map_error(_make_httpx_sdk_exc(exc_cls))
-            continue
         with pytest.raises(LLMError):
             provider._map_error(_make_httpx_sdk_exc(exc_cls))
 
@@ -287,11 +274,6 @@ def test_google_map_error_completeness():
         )
 
         for exc_cls in _all_subclasses(ix.APIError):
-            key = f"google._interactions.{exc_cls.__name__}"
-            if key in _KNOWN_MAP_ERROR_BUGS:
-                with pytest.raises(Exception):
-                    provider._map_error(_make_httpx_sdk_exc(exc_cls))
-                continue
             with pytest.raises(LLMError):
                 provider._map_error(_make_httpx_sdk_exc(exc_cls))
     except (ImportError, AttributeError):
@@ -601,24 +583,34 @@ class TestGoogleConvertMessages:
         fr = result[0]["parts"][0]["function_response"]
         assert fr["response"] == {"result": "42"}
 
-    def test_tool_role_uses_tool_call_id_as_name(self):
-        """BUG: Currently uses tool_call_id as function name instead of the
-        actual function name. This test documents current (buggy) behavior."""
+    def test_tool_role_uses_function_name_from_preceding_call(self):
+        """tool_call_id should resolve to the actual function name from the
+        preceding assistant tool_calls, not be used verbatim as the name."""
         result = self._convert(
-            [{"role": "tool", "tool_call_id": "call_abc", "content": "result"}]
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_abc",
+                            "type": "function",
+                            "function": {"name": "get_weather", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call_abc", "content": "sunny"},
+            ]
         )
-        fr = result[0]["parts"][0]["function_response"]
-        # Current behavior: name = tool_call_id (this is the bug)
-        assert fr["name"] == "call_abc"
+        fr = result[1]["parts"][0]["function_response"]
+        assert fr["name"] == "get_weather"
 
-    def test_tool_role_keeps_original_role(self):
-        """BUG: Currently keeps role='tool' instead of converting to 'user'.
-        This test documents current (buggy) behavior."""
+    def test_tool_role_converted_to_user(self):
+        """Google API expects role='user' for function_response parts."""
         result = self._convert(
             [{"role": "tool", "tool_call_id": "call_1", "content": "42"}]
         )
-        # Current behavior: role stays as "tool" (the bug)
-        assert result[0]["role"] == "tool"
+        assert result[0]["role"] == "user"
 
     def test_assistant_with_tool_calls(self):
         result = self._convert(
@@ -699,19 +691,20 @@ class TestAnthropicConvertMessages:
         assert block["tool_use_id"] == "call_1"
         assert block["content"] == "42"
 
-    def test_consecutive_tool_messages_not_merged(self):
-        """Each tool message becomes a separate user message. This means two
-        consecutive tool results produce user, user — which will fail
-        Anthropic's alternation validation. Documenting current behavior."""
+    def test_consecutive_tool_messages_merged(self):
+        """Consecutive tool messages must be merged into a single user message
+        with multiple tool_result blocks, to satisfy Anthropic's alternation."""
         result = self._convert(
             [
                 {"role": "tool", "tool_call_id": "call_1", "content": "a"},
                 {"role": "tool", "tool_call_id": "call_2", "content": "b"},
             ]
         )
-        assert len(result) == 2
+        assert len(result) == 1
         assert result[0]["role"] == "user"
-        assert result[1]["role"] == "user"
+        assert len(result[0]["content"]) == 2
+        assert result[0]["content"][0]["tool_use_id"] == "call_1"
+        assert result[0]["content"][1]["tool_use_id"] == "call_2"
 
     def test_assistant_with_tool_calls(self):
         result = self._convert(
