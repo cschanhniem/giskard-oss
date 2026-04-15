@@ -7,7 +7,6 @@ import pytest
 from giskard.agents.chat import Chat, Message
 from giskard.agents.generators.base import BaseGenerator, GenerationParams, Response
 from giskard.agents.generators.giskard_llm_generator import GiskardLLMGenerator
-from giskard.agents.templates import MessageTemplate
 from giskard.agents.tools import Function, Tool, ToolCall, tool
 from giskard.agents.workflow import ChatWorkflow
 from giskard.core import MinIntervalRateLimiter
@@ -71,9 +70,9 @@ async def test_generator_chat(generator: GiskardLLMGenerator):
 
     assert isinstance(pipeline, ChatWorkflow)
     assert len(pipeline.messages) == 1
-    assert isinstance(pipeline.messages[0], MessageTemplate)
+    assert isinstance(pipeline.messages[0], Message)
     assert pipeline.messages[0].role == "user"
-    assert pipeline.messages[0].content_template == test_message
+    assert pipeline.messages[0].content == test_message
 
     chat = await pipeline.run()
 
