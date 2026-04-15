@@ -501,8 +501,26 @@ class GoogleProvider:
     def _normalize_input_items(
         self, items: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Normalize input items for the Google Interactions API."""
-        # Build call_id → function_name map from function_call items
+        """Normalize input items to Google Interactions API ``ContentParam`` format.
+
+        The SDK's ``Input`` type is a union where ``Iterable[ContentParam]``
+        (flat typed items) is the preferred variant.  Mixing ``TurnParam``
+        (role-tagged dicts) with ``ContentParam`` items in the same list
+        confuses the SDK's union resolution, so we convert *everything* to
+        flat ``ContentParam`` dicts keyed by ``type``.
+
+        SDK type references (installed at ``google.genai._interactions.types``):
+          - ``FunctionCallContentParam``:  type="function_call", **id** (not
+            call_id), name, arguments (dict, not JSON string)
+          - ``FunctionResultContentParam``: type="function_result", **call_id**
+            (must match the function_call's id), result, name (optional)
+          - ``TextContentParam``: type="text", text
+
+        See also:
+          - Official example: https://github.com/googleapis/python-genai/commit/e28a69c
+          - Known issue on result format: https://github.com/googleapis/python-genai/issues/1906
+        """
+        # Build call_id/id → function_name map from function_call items
         call_id_to_name: dict[str, str] = {}
         for item in items:
             if item.get("type") == "function_call":
@@ -510,36 +528,38 @@ class GoogleProvider:
                 if cid and item.get("name"):
                     call_id_to_name[cid] = item["name"]
 
-        result: list[dict[str, Any]] = []
-        for item in items:
-            result.append(self._normalize_input_item(item, call_id_to_name))
-        return result
+        return [self._normalize_input_item(item, call_id_to_name) for item in items]
 
     def _normalize_input_item(
         self, item: dict[str, Any], call_id_to_name: dict[str, str]
     ) -> dict[str, Any]:
-        """Normalize a single input item for the Google Interactions API.
+        """Convert a single input item to a flat ``ContentParam`` dict."""
+        item_type = item.get("type")
 
-        - ``function_call_output`` → ``function_result`` format
-        - ``function_call`` → add ``role: "model"``, serialize ``arguments``
-        - ``role: "assistant"`` → ``role: "model"``
-        """
-        if item.get("type") == "function_call_output":
+        if item_type == "function_call_output":
             call_id = item.get("call_id") or ""
             return {
                 "type": "function_result",
-                "name": item.get("name") or call_id_to_name.get(call_id, ""),
                 "call_id": call_id,
+                "name": item.get("name") or call_id_to_name.get(call_id, ""),
                 "result": item["output"],
             }
-        if item.get("type") == "function_call":
-            result = {**item}
-            result.setdefault("role", "model")
-            if isinstance(result.get("arguments"), dict):
-                result["arguments"] = json.dumps(result["arguments"])
-            return result
-        if item.get("role") == "assistant":
-            return {**item, "role": "model"}
+
+        if item_type == "function_call":
+            args = item.get("arguments", {})
+            if isinstance(args, str):
+                args = json.loads(args)
+            return {
+                "type": "function_call",
+                "id": item.get("call_id") or item.get("id", ""),
+                "name": item.get("name", ""),
+                "arguments": args,
+            }
+
+        # Role-tagged turn (TurnParam) → TextContentParam
+        if "role" in item and "content" in item and "type" not in item:
+            return {"type": "text", "text": item.get("content") or ""}
+
         return item
 
     def _to_response_result(self, raw: Any, model: str) -> ResponseResult:
@@ -550,7 +570,8 @@ class GoogleProvider:
                 outputs.append(ResponseOutputText(text=item.text))
             elif item_type == "function_call":
                 args = getattr(item, "arguments", {})
-                call_id = getattr(item, "call_id", None) or getattr(item, "id", None)
+                # Google returns "id" on function_call outputs, not "call_id"
+                call_id = getattr(item, "id", None) or getattr(item, "call_id", None)
                 outputs.append(
                     ResponseOutputFunctionCall(
                         call_id=call_id,
