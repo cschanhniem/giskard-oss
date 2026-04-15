@@ -501,20 +501,22 @@ class GoogleProvider:
     def _normalize_input_item(self, item: dict[str, Any]) -> dict[str, Any]:
         """Normalize an input item for the Google Interactions API.
 
-        - ``function_call_output`` → ``function_result`` with ``role: "user"``
-        - ``function_call`` → add ``role: "model"`` if missing
+        - ``function_call_output`` → ``function_result`` format
+        - ``function_call`` → ensure ``arguments`` is a JSON string
         - ``role: "assistant"`` → ``role: "model"``
         """
         if item.get("type") == "function_call_output":
             return {
                 "type": "function_result",
-                "role": "user",
                 "name": item.get("name", ""),
                 "call_id": item["call_id"],
                 "result": item["output"],
             }
         if item.get("type") == "function_call":
-            return {**item, "role": item.get("role", "model")}
+            result = {**item}
+            if isinstance(result.get("arguments"), dict):
+                result["arguments"] = json.dumps(result["arguments"])
+            return result
         if item.get("role") == "assistant":
             return {**item, "role": "model"}
         return item
