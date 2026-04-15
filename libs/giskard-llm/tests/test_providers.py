@@ -508,6 +508,7 @@ async def test_google_respond_function_call(mock_errors):
 
     fc_item = SimpleNamespace(
         type="function_call",
+        id="call_xyz",
         name="get_weather",
         arguments={"city": "Tokyo"},
     )
@@ -518,6 +519,7 @@ async def test_google_respond_function_call(mock_errors):
     resp = await provider.respond("gemini-2.0-flash", "Weather?")
     assert len(resp.outputs) == 1
     assert isinstance(resp.outputs[0], ResponseOutputFunctionCall)
+    assert resp.outputs[0].call_id == "call_xyz"
     assert resp.outputs[0].name == "get_weather"
     assert resp.outputs[0].arguments == {"city": "Tokyo"}
 
@@ -660,6 +662,161 @@ class TestGoogleConvertMessages:
         assert len(result[0]["parts"]) == 2
         assert result[0]["parts"][0]["function_call"]["name"] == "add"
         assert result[0]["parts"][1]["function_call"]["name"] == "multiply"
+
+
+# -- Google _normalize_input_items (Interactions API) --------------------------
+
+
+class TestGoogleNormalizeInputItems:
+    """Unit tests for GoogleProvider._normalize_input_items."""
+
+    def _normalize(self, items):
+        provider = _make_google_provider()
+        return provider._normalize_input_items(items)
+
+    def test_function_call_output_to_function_result(self):
+        items = [
+            {
+                "type": "function_call",
+                "call_id": "c1",
+                "name": "get_weather",
+                "arguments": {},
+            },
+            {"type": "function_call_output", "call_id": "c1", "output": "sunny"},
+        ]
+        result = self._normalize(items)
+        assert result[1] == {
+            "type": "function_result",
+            "call_id": "c1",
+            "name": "get_weather",
+            "result": "sunny",
+        }
+
+    def test_function_call_output_explicit_name_wins(self):
+        """If the item already carries a name, it takes precedence over the map."""
+        items = [
+            {
+                "type": "function_call",
+                "call_id": "c1",
+                "name": "get_weather",
+                "arguments": {},
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "c1",
+                "name": "override",
+                "output": "x",
+            },
+        ]
+        result = self._normalize(items)
+        assert result[1]["name"] == "override"
+
+    def test_function_call_output_unknown_call_id(self):
+        items = [
+            {"type": "function_call_output", "call_id": "unknown", "output": "x"},
+        ]
+        result = self._normalize(items)
+        assert result[0]["name"] == ""
+        assert result[0]["call_id"] == "unknown"
+
+    def test_function_call_renames_call_id_to_id(self):
+        items = [
+            {
+                "type": "function_call",
+                "call_id": "c1",
+                "name": "fn",
+                "arguments": {"a": 1},
+            },
+        ]
+        result = self._normalize(items)
+        assert result[0]["id"] == "c1"
+        assert "call_id" not in result[0]
+
+    def test_function_call_keeps_id_field(self):
+        """Items using 'id' instead of 'call_id' should pass through correctly."""
+        items = [
+            {"type": "function_call", "id": "c2", "name": "fn", "arguments": {}},
+        ]
+        result = self._normalize(items)
+        assert result[0]["id"] == "c2"
+
+    def test_function_call_arguments_dict_kept(self):
+        items = [
+            {
+                "type": "function_call",
+                "call_id": "c1",
+                "name": "fn",
+                "arguments": {"k": "v"},
+            },
+        ]
+        result = self._normalize(items)
+        assert result[0]["arguments"] == {"k": "v"}
+        assert isinstance(result[0]["arguments"], dict)
+
+    def test_function_call_arguments_json_string_parsed(self):
+        items = [
+            {
+                "type": "function_call",
+                "call_id": "c1",
+                "name": "fn",
+                "arguments": '{"k": "v"}',
+            },
+        ]
+        result = self._normalize(items)
+        assert result[0]["arguments"] == {"k": "v"}
+        assert isinstance(result[0]["arguments"], dict)
+
+    def test_role_tagged_turn_to_text_content_param(self):
+        items = [{"role": "user", "content": "Hello"}]
+        result = self._normalize(items)
+        assert result == [{"type": "text", "text": "Hello"}]
+
+    def test_role_tagged_turn_empty_content(self):
+        items = [{"role": "user", "content": ""}]
+        result = self._normalize(items)
+        assert result == [{"type": "text", "text": ""}]
+
+    def test_role_tagged_turn_none_content(self):
+        items = [{"role": "user", "content": None}]
+        result = self._normalize(items)
+        assert result == [{"type": "text", "text": ""}]
+
+    def test_passthrough_valid_text_content_param(self):
+        items = [{"type": "text", "text": "already valid"}]
+        result = self._normalize(items)
+        assert result == [{"type": "text", "text": "already valid"}]
+
+    def test_passthrough_unknown_type(self):
+        items = [{"type": "something_else", "data": 1}]
+        result = self._normalize(items)
+        assert result == [{"type": "something_else", "data": 1}]
+
+    def test_mixed_list_full_roundtrip(self):
+        """A realistic input: user text + function_call echo + function_call_output."""
+        items = [
+            {"role": "user", "content": "What's the weather?"},
+            {
+                "type": "function_call",
+                "call_id": "fc_1",
+                "name": "get_weather",
+                "arguments": {"city": "Paris"},
+            },
+            {"type": "function_call_output", "call_id": "fc_1", "output": "rainy"},
+        ]
+        result = self._normalize(items)
+        assert result[0] == {"type": "text", "text": "What's the weather?"}
+        assert result[1] == {
+            "type": "function_call",
+            "id": "fc_1",
+            "name": "get_weather",
+            "arguments": {"city": "Paris"},
+        }
+        assert result[2] == {
+            "type": "function_result",
+            "call_id": "fc_1",
+            "name": "get_weather",
+            "result": "rainy",
+        }
 
 
 # -- Anthropic _convert_messages -----------------------------------------------
