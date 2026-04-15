@@ -269,8 +269,8 @@ def test_anthropic_map_error_completeness():
 @pytest.mark.google
 def test_google_map_error_completeness():
     """Every google.genai error must be mapped to an LLMError."""
-    from google.genai import (
-        errors as genai_errors,  # pyright: ignore[reportMissingImports]
+    from google.genai import (  # pyright: ignore[reportMissingImports]
+        errors as genai_errors,
     )
 
     provider = _make_google_provider()
@@ -282,8 +282,8 @@ def test_google_map_error_completeness():
 
     # google.genai._interactions hierarchy (httpx-based, same shape as openai)
     try:
-        from google.genai import (
-            _interactions as ix,  # pyright: ignore[reportMissingImports]
+        from google.genai import (  # pyright: ignore[reportMissingImports]
+            _interactions as ix,
         )
 
         for exc_cls in _all_subclasses(ix.APIError):
