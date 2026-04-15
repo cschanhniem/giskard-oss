@@ -216,7 +216,7 @@ def _all_subclasses(cls: type) -> list[type]:
 
 def _make_httpx_sdk_exc(cls: type) -> Exception:
     """Construct a minimal httpx-based SDK exception (openai / anthropic / google._interactions)."""
-    import httpx
+    import httpx  # pyright: ignore[reportMissingImports]
 
     name = cls.__name__
     if name == "APITimeoutError":
@@ -242,7 +242,7 @@ _KNOWN_MAP_ERROR_BUGS: set[str] = {
 @pytest.mark.openai
 def test_openai_map_error_completeness():
     """Every openai.APIError subclass must be mapped to an LLMError."""
-    import openai
+    import openai  # pyright: ignore[reportMissingImports]
 
     provider = _make_openai_provider()
     for exc_cls in _all_subclasses(openai.APIError):
@@ -258,7 +258,7 @@ def test_openai_map_error_completeness():
 @pytest.mark.anthropic
 def test_anthropic_map_error_completeness():
     """Every anthropic.APIError subclass must be mapped to an LLMError."""
-    import anthropic
+    import anthropic  # pyright: ignore[reportMissingImports]
 
     provider = _make_anthropic_provider()
     for exc_cls in _all_subclasses(anthropic.APIError):
@@ -269,7 +269,9 @@ def test_anthropic_map_error_completeness():
 @pytest.mark.google
 def test_google_map_error_completeness():
     """Every google.genai error must be mapped to an LLMError."""
-    from google.genai import errors as genai_errors
+    from google.genai import (
+        errors as genai_errors,  # pyright: ignore[reportMissingImports]
+    )
 
     provider = _make_google_provider()
 
@@ -280,7 +282,9 @@ def test_google_map_error_completeness():
 
     # google.genai._interactions hierarchy (httpx-based, same shape as openai)
     try:
-        from google.genai import _interactions as ix
+        from google.genai import (
+            _interactions as ix,  # pyright: ignore[reportMissingImports]
+        )
 
         for exc_cls in _all_subclasses(ix.APIError):
             key = f"google._interactions.{exc_cls.__name__}"
