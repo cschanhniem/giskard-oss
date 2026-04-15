@@ -478,7 +478,7 @@ class GoogleProvider:
             )
 
         if isinstance(input, list):
-            input = [self._normalize_input_item(item) for item in input]
+            input = self._normalize_input_items(input)
 
         kwargs: dict[str, Any] = {"model": model, "input": input}
         if instructions is not None:
@@ -498,18 +498,38 @@ class GoogleProvider:
 
         return self._to_response_result(raw, model)
 
-    def _normalize_input_item(self, item: dict[str, Any]) -> dict[str, Any]:
-        """Normalize an input item for the Google Interactions API.
+    def _normalize_input_items(
+        self, items: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Normalize input items for the Google Interactions API."""
+        # Build call_id → function_name map from function_call items
+        call_id_to_name: dict[str, str] = {}
+        for item in items:
+            if item.get("type") == "function_call":
+                cid = item.get("call_id") or item.get("id")
+                if cid and item.get("name"):
+                    call_id_to_name[cid] = item["name"]
+
+        result: list[dict[str, Any]] = []
+        for item in items:
+            result.append(self._normalize_input_item(item, call_id_to_name))
+        return result
+
+    def _normalize_input_item(
+        self, item: dict[str, Any], call_id_to_name: dict[str, str]
+    ) -> dict[str, Any]:
+        """Normalize a single input item for the Google Interactions API.
 
         - ``function_call_output`` → ``function_result`` format
-        - ``function_call`` → ensure ``arguments`` is a JSON string
+        - ``function_call`` → add ``role: "model"``, serialize ``arguments``
         - ``role: "assistant"`` → ``role: "model"``
         """
         if item.get("type") == "function_call_output":
+            call_id = item.get("call_id") or ""
             return {
                 "type": "function_result",
-                "name": item.get("name", ""),
-                "call_id": item["call_id"],
+                "name": item.get("name") or call_id_to_name.get(call_id, ""),
+                "call_id": call_id,
                 "result": item["output"],
             }
         if item.get("type") == "function_call":
@@ -530,9 +550,10 @@ class GoogleProvider:
                 outputs.append(ResponseOutputText(text=item.text))
             elif item_type == "function_call":
                 args = getattr(item, "arguments", {})
+                call_id = getattr(item, "call_id", None) or getattr(item, "id", None)
                 outputs.append(
                     ResponseOutputFunctionCall(
-                        call_id=getattr(item, "call_id", None),
+                        call_id=call_id,
                         name=item.name,
                         arguments=args if isinstance(args, dict) else {},
                     )
