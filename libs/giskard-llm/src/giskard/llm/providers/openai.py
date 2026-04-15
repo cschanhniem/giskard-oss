@@ -125,7 +125,9 @@ class OpenAIProvider:
         if isinstance(e, openai.InternalServerError):
             raise ServerError(e.status_code, str(e), self._PROVIDER) from e
         if isinstance(e, openai.APIError):
-            raise LLMError(e.status_code or 500, str(e), self._PROVIDER) from e
+            raise LLMError(
+                getattr(e, "status_code", None) or 500, str(e), self._PROVIDER
+            ) from e
         raise e
 
     async def complete(
@@ -324,6 +326,8 @@ class OpenAIProvider:
             )
 
         openai = _import_openai()
+        if isinstance(input, list):
+            input = [self._normalize_input_item(item) for item in input]
         kwargs: dict[str, Any] = {"model": model, "input": input}
         if instructions is not None:
             kwargs["instructions"] = instructions
@@ -342,6 +346,18 @@ class OpenAIProvider:
             self._map_error(e)
 
         return self._to_response_result(raw)
+
+    def _normalize_input_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Normalize an input item for the OpenAI Responses API.
+
+        Ensures ``function_call`` items have ``arguments`` as a JSON string
+        (OpenAI rejects dict values).
+        """
+        if item.get("type") == "function_call" and isinstance(
+            item.get("arguments"), dict
+        ):
+            return {**item, "arguments": json.dumps(item["arguments"])}
+        return item
 
     def _to_response_result(self, raw: Any) -> ResponseResult:
         """Convert raw Responses API output to ResponseResult."""

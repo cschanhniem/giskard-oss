@@ -178,9 +178,15 @@ class GoogleProvider:
             if isinstance(e, ix.InternalServerError):
                 raise ServerError(status or 500, str(e), PROVIDER) from e
             if isinstance(e, ix.APIStatusError):
+                if "API_KEY_INVALID" in str(e):
+                    raise AuthenticationError(status or 401, str(e), PROVIDER) from e
                 raise BadRequestError(status or 400, str(e), PROVIDER) from e
             if isinstance(e, ix.APIConnectionError):
                 raise LLMError(0, str(e), PROVIDER) from e
+            if isinstance(e, ix.APIError):
+                raise LLMError(
+                    getattr(e, "status_code", None) or 500, str(e), PROVIDER
+                ) from e
 
         if "timed out" in str(e).lower() or "timeout" in type(e).__name__.lower():
             raise LLMTimeoutError(408, str(e), PROVIDER) from e
@@ -272,6 +278,15 @@ class GoogleProvider:
         self, messages: Sequence[ChatMessage]
     ) -> list[dict[str, Any]]:
         """Convert OpenAI-format messages to Gemini content format."""
+        # Build tool_call_id → function_name map from assistant tool_calls
+        tc_id_to_name: dict[str, str] = {}
+        for msg in messages:
+            for tc in msg.get("tool_calls") or []:
+                tc_data = tc if isinstance(tc, dict) else tc.model_dump()
+                tc_id_to_name[tc_data.get("id", "")] = tc_data.get("function", {}).get(
+                    "name", ""
+                )
+
         contents: list[dict[str, Any]] = []
         for msg in messages:
             role = msg.get("role", "user")
@@ -280,14 +295,16 @@ class GoogleProvider:
             if role == "assistant":
                 role = "model"
             if role == "tool":
+                tc_id = msg.get("tool_call_id", "unknown")
                 parts = [
                     {
                         "function_response": {
-                            "name": msg.get("tool_call_id", "unknown"),
+                            "name": tc_id_to_name.get(tc_id, tc_id),
                             "response": {"result": msg.get("content", "")},
                         }
                     }
                 ]
+                role = "user"
             elif msg.get("tool_calls"):
                 raw_tcs = msg.get("tool_calls", [])
                 parts = []
@@ -490,7 +507,7 @@ class GoogleProvider:
         if item.get("type") == "function_call_output":
             return {
                 "type": "function_result",
-                "name": item["name"],
+                "name": item.get("name", ""),
                 "call_id": item["call_id"],
                 "result": item["output"],
             }
