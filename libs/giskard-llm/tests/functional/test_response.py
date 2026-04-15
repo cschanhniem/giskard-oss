@@ -8,8 +8,8 @@ import os
 
 import pytest
 from giskard.llm import LLMClient
-from giskard.llm.errors import LLMError, UnsupportedOperationError
-from giskard.llm.types import ResponseOutputFunctionCall, ToolDef
+from giskard.llm.errors import AuthenticationError, LLMError, UnsupportedOperationError
+from giskard.llm.types import ResponseOutputFunctionCall, ResponseOutputText, ToolDef
 
 pytestmark = pytest.mark.functional
 
@@ -106,6 +106,43 @@ async def test_respond_function_call(provider: str):
     fc = fc_outputs[0]
     assert fc.name == "add"
     assert "a" in fc.arguments and "b" in fc.arguments
+
+
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_respond_tool_roundtrip(provider: str):
+    """Tool roundtrip via input list: tool call -> feed back result -> final text.
+
+    Unlike test_respond_stateful_with_tool_result which uses previous_id,
+    this test feeds the full conversation (including tool results) as input.
+    """
+    client, model = _make_client(provider)
+    resp1 = await client.aresponse(
+        model, "What is 2+2? Use the add tool.", tools=[_ADD_TOOL]
+    )
+    fc_outputs = [o for o in resp1.outputs if isinstance(o, ResponseOutputFunctionCall)]
+    assert len(fc_outputs) > 0
+    fc = fc_outputs[0]
+
+    resp2 = await client.aresponse(
+        model,
+        [
+            {"role": "user", "content": "What is 2+2? Use the add tool."},
+            {
+                "type": "function_call",
+                "name": fc.name,
+                "call_id": fc.call_id,
+                "arguments": fc.arguments,
+            },
+            {
+                "type": "function_call_output",
+                "call_id": fc.call_id,
+                "output": "4",
+            },
+        ],
+    )
+    text_outputs = [o for o in resp2.outputs if isinstance(o, ResponseOutputText)]
+    assert len(text_outputs) > 0
+    assert text_outputs[0].text.strip()
 
 
 # -- Stateful turn scenario ---------------------------------------------------
@@ -254,3 +291,25 @@ async def test_respond_unsupported_provider():
     )
     with pytest.raises(UnsupportedOperationError, match="does not support"):
         await client.aresponse("test-anthropic/claude-haiku-4-5-20251001", "Hello")
+
+
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_respond_invalid_api_key(provider: str):
+    """Bogus API key -> AuthenticationError on Response API."""
+    client = LLMClient()
+    alias = f"bad-{provider}"
+    bad_params = dict(_CONFIGURE_PARAMS[provider])
+    bad_params["api_key"] = "invalid-key-12345"  # pragma: allowlist secret
+    client.configure(alias, **bad_params)
+
+    _, model_name = _RESPONSE_MODELS[provider].split("/", 1)
+    with pytest.raises(AuthenticationError):
+        await client.aresponse(f"{alias}/{model_name}", "Hello")
+
+
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_respond_empty_input(provider: str):
+    """Empty list input -> LLMError or BadRequestError."""
+    client, model = _make_client(provider)
+    with pytest.raises(LLMError):
+        await client.aresponse(model, [])

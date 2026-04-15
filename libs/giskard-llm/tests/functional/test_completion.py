@@ -201,6 +201,108 @@ async def test_tool_result_loop(provider: str):
     assert resp2.choices[0].message.content
 
 
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_tool_result_loop_hardcoded(provider: str):
+    """Single tool call roundtrip with hardcoded messages.
+
+    Unlike test_tool_result_loop which builds messages from a live API response,
+    this test controls the exact message shape to isolate provider conversion bugs
+    (e.g. Google not converting role="tool" or using wrong function_response.name).
+    """
+    client, model = _make_client(provider)
+    messages = [
+        {"role": "user", "content": "What is 2+2? Use the add tool."},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_0",
+                    "type": "function",
+                    "function": {"name": "add", "arguments": '{"a": 2, "b": 2}'},
+                },
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_0", "content": "4"},
+    ]
+    resp = await client.acompletion(model, messages, tools=[ADD_TOOL])  # pyright: ignore[reportArgumentType]
+    assert resp.choices[0].finish_reason == "stop"
+    assert resp.choices[0].message.content
+
+
+MULTIPLY_TOOL: ToolDef = {
+    "type": "function",
+    "function": {
+        "name": "multiply",
+        "description": "Multiply two numbers",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "a": {"type": "integer"},
+                "b": {"type": "integer"},
+            },
+            "required": ["a", "b"],
+        },
+    },
+}
+
+
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_tool_result_loop_parallel(provider: str):
+    """Parallel tool calls -> 2 consecutive tool result messages -> final response.
+
+    Reproduces the pattern from giskard-agents when a model requests multiple
+    tools in a single turn. Each tool result is a separate role="tool" message.
+    """
+    client, model = _make_client(provider)
+    messages = [
+        {
+            "role": "user",
+            "content": "What is 2+2 and 3*4? Use the add and multiply tools.",
+        },
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_0",
+                    "type": "function",
+                    "function": {"name": "add", "arguments": '{"a": 2, "b": 2}'},
+                },
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "multiply",
+                        "arguments": '{"a": 3, "b": 4}',
+                    },
+                },
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_0", "content": "4"},
+        {"role": "tool", "tool_call_id": "call_1", "content": "12"},
+    ]
+    resp = await client.acompletion(model, messages, tools=[ADD_TOOL, MULTIPLY_TOOL])  # pyright: ignore[reportArgumentType]
+    assert resp.choices[0].finish_reason == "stop"
+    assert resp.choices[0].message.content
+
+
+# -- Usage scenarios -----------------------------------------------------------
+
+
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_usage_populated(provider: str):
+    """Completion response includes usage with non-negative token counts."""
+    client, model = _make_client(provider)
+    resp = await client.acompletion(
+        model, [{"role": "user", "content": "Say one word."}]
+    )
+    assert resp.usage is not None
+    assert resp.usage.prompt_tokens >= 0
+    assert resp.usage.completion_tokens >= 0
+    assert resp.usage.total_tokens >= resp.usage.prompt_tokens
+
+
 # -- Structured output scenarios -----------------------------------------------
 
 

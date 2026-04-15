@@ -49,10 +49,11 @@ class UnsupportedOperationError(LLMError):
 class ProviderNotAvailableError(LLMError):
     """The provider SDK is not installed."""
 
-    def __init__(self, provider: str, package: str) -> None:
+    def __init__(self, provider: str, package: str, extra: str | None = None) -> None:
+        pip_extra = extra or provider
         super().__init__(
             0,
             f"Provider '{provider}' requires the '{package}' package. "
-            f"Install it with: pip install giskard-llm[{provider}]",
+            f"Install it with: pip install giskard-llm[{pip_extra}]",
             provider,
         )

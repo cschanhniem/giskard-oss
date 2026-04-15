@@ -55,6 +55,12 @@ else
 	$(foreach lib,$(LIBS),uv run pytest libs/$(lib) -m "functional" &&) true
 endif
 
+install-no-providers: ## Install giskard-llm without provider SDKs (for no_providers tests)
+	uv sync --package giskard-llm
+
+test-no-providers: ## Run tests that verify behavior when provider SDKs are missing
+	uv run pytest libs/giskard-llm -m "no_providers"
+
 test-package-conflict: ## Test package conflict with giskard legacy package installed
 	@echo "Testing package conflict..."
 	@echo "Creating virtual environment..."

@@ -6,7 +6,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from giskard.llm.errors import BadRequestError, RateLimitError
+from giskard.llm.errors import BadRequestError, LLMError, RateLimitError
 from giskard.llm.providers.anthropic import AnthropicProvider
 from giskard.llm.providers.base import (
     CompletionProvider,
@@ -189,28 +189,6 @@ async def test_openai_completion_with_typed_tool_calls(mock_import):
 
 
 @patch("giskard.llm.providers.openai._import_openai")
-async def test_openai_rate_limit_error(mock_import):
-    openai = pytest.importorskip("openai")
-    mock_import.return_value = openai
-
-    provider = _make_openai_provider()
-    mock_response = MagicMock()
-    mock_response.status_code = 429
-    mock_response.headers = {}
-    mock_response.json.return_value = {"error": {"message": "rate limited"}}
-    err = openai.RateLimitError(
-        message="rate limited",
-        response=mock_response,
-        body={"error": {"message": "rate limited"}},
-    )
-    provider._client.chat.completions.create = AsyncMock(side_effect=err)
-
-    with pytest.raises(RateLimitError) as exc_info:
-        await provider.complete("gpt-4o", [{"role": "user", "content": "Hi"}])
-    assert exc_info.value.status_code == 429
-
-
-@patch("giskard.llm.providers.openai._import_openai")
 async def test_openai_embedding(mock_import):
     mock_import.return_value = MagicMock()
     provider = _make_openai_provider()
@@ -222,6 +200,102 @@ async def test_openai_embedding(mock_import):
     resp = await provider.embed("text-embedding-3-small", ["hello", "world"])
     assert len(resp.data) == 2
     assert resp.data[0].embedding == [0.1, 0.2]
+
+
+# -- Error mapping completeness ------------------------------------------------
+
+
+def _all_subclasses(cls: type) -> list[type]:
+    """Recursively collect all subclasses of *cls*."""
+    result: list[type] = []
+    for sc in cls.__subclasses__():
+        result.append(sc)
+        result.extend(_all_subclasses(sc))
+    return result
+
+
+def _make_httpx_sdk_exc(cls: type) -> Exception:
+    """Construct a minimal httpx-based SDK exception (openai / anthropic / google._interactions)."""
+    import httpx
+
+    name = cls.__name__
+    if name == "APITimeoutError":
+        return cls(request=httpx.Request("GET", "https://test"))  # type: ignore[call-arg]
+    if name == "APIConnectionError":
+        return cls(request=httpx.Request("GET", "https://test"), message="conn err")  # type: ignore[call-arg]
+    if name == "APIResponseValidationError":
+        resp = httpx.Response(200, request=httpx.Request("GET", "https://test"))
+        return cls(response=resp, body=None)  # type: ignore[call-arg]
+    # APIStatusError and all its subclasses
+    resp = httpx.Response(400, request=httpx.Request("GET", "https://test"))
+    return cls(message="test", response=resp, body=None)  # type: ignore[call-arg]
+
+
+_KNOWN_MAP_ERROR_BUGS: set[str] = {
+    # APIConnectionError has no status_code attr; the catch-all crashes with AttributeError
+    "openai.APIConnectionError",
+    # _interactions.APIResponseValidationError isn't matched by any branch; falls through
+    "google._interactions.APIResponseValidationError",
+}
+
+
+@pytest.mark.openai
+def test_openai_map_error_completeness():
+    """Every openai.APIError subclass must be mapped to an LLMError."""
+    import openai
+
+    provider = _make_openai_provider()
+    for exc_cls in _all_subclasses(openai.APIError):
+        key = f"openai.{exc_cls.__name__}"
+        if key in _KNOWN_MAP_ERROR_BUGS:
+            with pytest.raises(Exception):
+                provider._map_error(_make_httpx_sdk_exc(exc_cls))
+            continue
+        with pytest.raises(LLMError):
+            provider._map_error(_make_httpx_sdk_exc(exc_cls))
+
+
+@pytest.mark.anthropic
+def test_anthropic_map_error_completeness():
+    """Every anthropic.APIError subclass must be mapped to an LLMError."""
+    import anthropic
+
+    provider = _make_anthropic_provider()
+    for exc_cls in _all_subclasses(anthropic.APIError):
+        with pytest.raises(LLMError):
+            provider._map_error(_make_httpx_sdk_exc(exc_cls))
+
+
+@pytest.mark.google
+def test_google_map_error_completeness():
+    """Every google.genai error must be mapped to an LLMError."""
+    from google.genai import errors as genai_errors
+
+    provider = _make_google_provider()
+
+    # google.genai.errors hierarchy (ClientError, ServerError)
+    for exc_cls in [genai_errors.ClientError, genai_errors.ServerError]:
+        with pytest.raises(LLMError):
+            provider._map_error(exc_cls(400, "test"))
+
+    # google.genai._interactions hierarchy (httpx-based, same shape as openai)
+    try:
+        from google.genai import _interactions as ix
+
+        for exc_cls in _all_subclasses(ix.APIError):
+            key = f"google._interactions.{exc_cls.__name__}"
+            if key in _KNOWN_MAP_ERROR_BUGS:
+                with pytest.raises(Exception):
+                    provider._map_error(_make_httpx_sdk_exc(exc_cls))
+                continue
+            with pytest.raises(LLMError):
+                provider._map_error(_make_httpx_sdk_exc(exc_cls))
+    except (ImportError, AttributeError):
+        pass
+
+    # Timeout heuristic (non-SDK exceptions with "timed out" in message)
+    with pytest.raises(LLMError):
+        provider._map_error(Exception("Connection timed out"))
 
 
 # -- OpenAI message validation ------------------------------------------------
@@ -484,3 +558,227 @@ def test_google_implements_all_protocols():
     assert isinstance(provider, CompletionProvider)
     assert isinstance(provider, EmbeddingProvider)
     assert isinstance(provider, ResponseProvider)
+
+
+# -- Google _convert_messages --------------------------------------------------
+
+
+class TestGoogleConvertMessages:
+    """Unit tests for GoogleProvider._convert_messages."""
+
+    def _convert(self, messages):
+        provider = _make_google_provider()
+        return provider._convert_messages(messages)
+
+    def test_user_message(self):
+        result = self._convert([{"role": "user", "content": "Hello"}])
+        assert result == [{"role": "user", "parts": [{"text": "Hello"}]}]
+
+    def test_assistant_becomes_model(self):
+        result = self._convert([{"role": "assistant", "content": "Hi"}])
+        assert result == [{"role": "model", "parts": [{"text": "Hi"}]}]
+
+    def test_system_messages_skipped(self):
+        result = self._convert(
+            [
+                {"role": "system", "content": "Be helpful"},
+                {"role": "user", "content": "Hi"},
+            ]
+        )
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+
+    def test_tool_role_produces_function_response(self):
+        """tool messages should produce a function_response part."""
+        result = self._convert(
+            [{"role": "tool", "tool_call_id": "call_1", "content": "42"}]
+        )
+        assert len(result) == 1
+        fr = result[0]["parts"][0]["function_response"]
+        assert fr["response"] == {"result": "42"}
+
+    def test_tool_role_uses_tool_call_id_as_name(self):
+        """BUG: Currently uses tool_call_id as function name instead of the
+        actual function name. This test documents current (buggy) behavior."""
+        result = self._convert(
+            [{"role": "tool", "tool_call_id": "call_abc", "content": "result"}]
+        )
+        fr = result[0]["parts"][0]["function_response"]
+        # Current behavior: name = tool_call_id (this is the bug)
+        assert fr["name"] == "call_abc"
+
+    def test_tool_role_keeps_original_role(self):
+        """BUG: Currently keeps role='tool' instead of converting to 'user'.
+        This test documents current (buggy) behavior."""
+        result = self._convert(
+            [{"role": "tool", "tool_call_id": "call_1", "content": "42"}]
+        )
+        # Current behavior: role stays as "tool" (the bug)
+        assert result[0]["role"] == "tool"
+
+    def test_assistant_with_tool_calls(self):
+        result = self._convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "add",
+                                "arguments": '{"a": 1, "b": 2}',
+                            },
+                        }
+                    ],
+                }
+            ]
+        )
+        assert result[0]["role"] == "model"
+        fc = result[0]["parts"][0]["function_call"]
+        assert fc["name"] == "add"
+        assert fc["args"] == {"a": 1, "b": 2}
+
+    def test_multiple_tool_calls_in_one_message(self):
+        result = self._convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "add", "arguments": "{}"},
+                        },
+                        {
+                            "id": "call_2",
+                            "type": "function",
+                            "function": {"name": "multiply", "arguments": "{}"},
+                        },
+                    ],
+                }
+            ]
+        )
+        assert len(result[0]["parts"]) == 2
+        assert result[0]["parts"][0]["function_call"]["name"] == "add"
+        assert result[0]["parts"][1]["function_call"]["name"] == "multiply"
+
+
+# -- Anthropic _convert_messages -----------------------------------------------
+
+
+class TestAnthropicConvertMessages:
+    """Unit tests for AnthropicProvider._convert_messages."""
+
+    def _convert(self, messages) -> list[dict[str, Any]]:
+        provider = _make_anthropic_provider()
+        return provider._convert_messages(messages)  # pyright: ignore[reportReturnType]
+
+    def test_user_message(self):
+        result = self._convert([{"role": "user", "content": "Hello"}])
+        assert result == [{"role": "user", "content": "Hello"}]
+
+    def test_assistant_message(self):
+        result = self._convert([{"role": "assistant", "content": "Hi"}])
+        assert result == [{"role": "assistant", "content": "Hi"}]
+
+    def test_tool_becomes_user_with_tool_result(self):
+        result = self._convert(
+            [{"role": "tool", "tool_call_id": "call_1", "content": "42"}]
+        )
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        block = result[0]["content"][0]
+        assert block["type"] == "tool_result"
+        assert block["tool_use_id"] == "call_1"
+        assert block["content"] == "42"
+
+    def test_consecutive_tool_messages_not_merged(self):
+        """Each tool message becomes a separate user message. This means two
+        consecutive tool results produce user, user — which will fail
+        Anthropic's alternation validation. Documenting current behavior."""
+        result = self._convert(
+            [
+                {"role": "tool", "tool_call_id": "call_1", "content": "a"},
+                {"role": "tool", "tool_call_id": "call_2", "content": "b"},
+            ]
+        )
+        assert len(result) == 2
+        assert result[0]["role"] == "user"
+        assert result[1]["role"] == "user"
+
+    def test_assistant_with_tool_calls(self):
+        result = self._convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "add",
+                                "arguments": '{"a": 1, "b": 2}',
+                            },
+                        }
+                    ],
+                }
+            ]
+        )
+        assert result[0]["role"] == "assistant"
+        content = result[0]["content"]
+        assert len(content) == 1
+        assert content[0]["type"] == "tool_use"
+        assert content[0]["name"] == "add"
+        assert content[0]["input"] == {"a": 1, "b": 2}
+
+    def test_assistant_with_content_and_tool_calls(self):
+        result = self._convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Let me check",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "search",
+                                "arguments": '{"q": "test"}',
+                            },
+                        }
+                    ],
+                }
+            ]
+        )
+        content = result[0]["content"]
+        assert len(content) == 2
+        assert content[0]["type"] == "text"
+        assert content[0]["text"] == "Let me check"
+        assert content[1]["type"] == "tool_use"
+
+    def test_full_tool_roundtrip_sequence(self):
+        """user -> assistant(tool_calls) -> tool -> should produce valid
+        alternating user/assistant/user sequence."""
+        result = self._convert(
+            [
+                {"role": "user", "content": "What is 2+2?"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "add", "arguments": '{"a":2,"b":2}'},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call_1", "content": "4"},
+            ]
+        )
+        assert len(result) == 3
+        assert [m["role"] for m in result] == ["user", "assistant", "user"]

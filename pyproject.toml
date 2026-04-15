@@ -57,6 +57,7 @@ markers = [
     "anthropic: tests requiring the anthropic provider SDK",
     "azure: tests requiring the openai SDK (Azure OpenAI)",
     "azure_ai: tests requiring the openai SDK (Azure AI Foundry)",
+    "no_providers: tests that run without any provider SDK installed",
 ]
 
 [dependency-groups]

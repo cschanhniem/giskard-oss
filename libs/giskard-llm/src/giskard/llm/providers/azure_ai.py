@@ -60,7 +60,7 @@ class AzureAIProvider(OpenAIProvider):
         try:
             import openai
         except ImportError as exc:
-            raise ProviderNotAvailableError(PROVIDER, "openai") from exc
+            raise ProviderNotAvailableError(PROVIDER, "openai", extra="azure") from exc
 
         resolved_key = api_key or os.environ.get("AZURE_AI_API_KEY")
         resolved_base = base_url or os.environ.get("AZURE_AI_ENDPOINT")
