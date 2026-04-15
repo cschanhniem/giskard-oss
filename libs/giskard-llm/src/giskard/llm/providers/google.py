@@ -514,6 +514,7 @@ class GoogleProvider:
             }
         if item.get("type") == "function_call":
             result = {**item}
+            result.setdefault("role", "model")
             if isinstance(result.get("arguments"), dict):
                 result["arguments"] = json.dumps(result["arguments"])
             return result
