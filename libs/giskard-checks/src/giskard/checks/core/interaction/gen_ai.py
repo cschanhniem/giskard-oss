@@ -6,10 +6,12 @@ from .trace import Interaction, Trace
 
 
 class TextMessageLike(BaseModel, frozen=True, extra="allow"):
+    role: str
     content: str
 
 
 class ToolCallLike(BaseModel, frozen=True, extra="allow"):
+    role: str
     id: str
     type: str
 
@@ -36,7 +38,7 @@ class ChoiceLike(BaseModel, frozen=True, extra="allow"):
 
 class GenAiTrace(Trace[list[MessageLike], ChoiceLike], frozen=True):
     @classmethod
-    def from_otel_events(
+    def from_otel_logs(
         cls,
         events: list[dict[str, Any]],
         /,
@@ -49,7 +51,7 @@ class GenAiTrace(Trace[list[MessageLike], ChoiceLike], frozen=True):
             body = event.get("body", None)
 
             if not isinstance(event_name, str):
-                raise ValueError(f"Event name is not a string: {event_name}")
+                raise ValueError(f"Event name is not a string: event={event}")
 
             if body is None:
                 raise ValueError(
@@ -71,7 +73,12 @@ class GenAiTrace(Trace[list[MessageLike], ChoiceLike], frozen=True):
                 body = {"role": "tool"} | body  # role is optional in the body
                 inputs.append(ToolMessageLike.model_validate(body))
             elif event_name == "gen_ai.choice":
-                choice = ChoiceLike.model_validate(event["body"])
+                # Anthropic instrumentation omits assistant ``role`` in the message body (semconv).
+                choice_body = dict(body)
+                nested = choice_body.get("message")
+                if isinstance(nested, dict) and "role" not in nested:
+                    choice_body["message"] = {"role": "assistant", **nested}
+                choice = ChoiceLike.model_validate(choice_body)
                 interactions.append(Interaction(inputs=inputs, outputs=choice))
                 inputs = []
             elif raise_on_unknown_event:
