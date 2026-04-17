@@ -340,6 +340,18 @@ def test_detect_provider_from_attributes():
     assert detect_provider({"foo": "bar"}) is None
 
 
+def test_from_otel_auto_detects_provider_when_omitted():
+    """``provider=None`` triggers provider detection from the source payload."""
+    events = _load("anthropic/events/tool_calls.json")
+    events_with_system = [
+        {**events[0], "attributes": {"gen_ai.system": "anthropic"}},
+        *events[1:],
+    ]
+    auto = GenAiTrace.from_otel(events_with_system)
+    explicit = GenAiTrace.from_otel(events_with_system, provider="anthropic")
+    assert auto == explicit
+
+
 # -- Wiring -------------------------------------------------------------------
 
 

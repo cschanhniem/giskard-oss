@@ -16,7 +16,7 @@ directly.
 
 from typing import Any
 
-from ..detect import detect_family
+from ..detect import detect_family, detect_provider
 from ..model import GenAiInteraction
 from ..providers import get_normalizer
 from .attributes import SpanAttributesAdapter
@@ -32,7 +32,7 @@ def parse_source(
 ) -> list[GenAiInteraction]:
     """Auto-detect the semconv family and parse ``source`` into interactions."""
     family = detect_family(source)
-    normalizer = get_normalizer(provider)
+    normalizer = get_normalizer(provider or detect_provider(source))
     if family == "events":
         adapter = EventStreamAdapter(
             raise_on_unknown_event=raise_on_unknown_event,
