@@ -230,6 +230,7 @@ class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
                 return
             # TODO: Handle when only last log is passed (no redundancy)
             # Shall we map assistant MessageLike to choices or ChoiceLike to MessageLike?
+            # Shall we just generate a single interaction with all inputs and choices?
             stored_inputs = (
                 inputs[_start_index_after_last_assistant(inputs) :]
                 if drop_redundant_input_history
