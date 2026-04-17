@@ -169,6 +169,11 @@ class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
     ) -> Self:
         """Parse OTEL GenAI semconv events into a :class:`GenAiTrace`.
 
+        Notes
+        -----
+        GenAI semantic conventions are not stable; event names and payload
+        shapes may change across OpenTelemetry and instrumentation versions.
+
         Parameters
         ----------
         events
@@ -257,10 +262,7 @@ class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
             return
 
         for interaction in self.interactions:
-            p = _start_index_after_last_assistant(interaction.inputs)
-            input_messages = interaction.inputs[p:]
-
-            for inputs in input_messages:
+            for inputs in interaction.inputs:
                 yield from inputs.__rich_console__(console, options)
 
             for outputs in interaction.outputs:

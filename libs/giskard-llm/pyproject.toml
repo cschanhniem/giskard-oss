@@ -19,6 +19,7 @@ all = ["giskard-llm[openai,google,anthropic]"]
 # Provider SDK + OpenTelemetry GenAI instrumentation (semconv logs). Used by giskard-checks functional tests.
 openai-otel = [
     "openai>=1.30,<3",
+    "httpx>=0.28.1",
     "opentelemetry-instrumentation-openai-v2>=2.3b0",
     "opentelemetry-sdk>=1.41,<2",
     # opentelemetry-instrumentation-openai-v2 calls wrap_function_wrapper(module=...); wrapt 2.x renamed that kw to target=
@@ -26,12 +27,14 @@ openai-otel = [
 ]
 google-otel = [
     "google-genai>=1.0,<2",
+    "httpx>=0.28.1",
     "opentelemetry-instrumentation-google-genai>=0.7b0",
     "opentelemetry-sdk>=1.41,<2",
     "wrapt<2",
 ]
 anthropic-otel = [
     "anthropic>=0.40,<1",
+    "httpx>=0.28.1",
     "opentelemetry-instrumentation-anthropic>=0.59b0",
     "opentelemetry-sdk>=1.41,<2",
     "wrapt<2",
@@ -39,12 +42,14 @@ anthropic-otel = [
 # Azure OpenAI and Azure AI Foundry use the OpenAI SDK; same OTEL instrumentation as openai.
 azure-otel = [
     "openai>=1.30,<3",
+    "httpx>=0.28.1",
     "opentelemetry-instrumentation-openai-v2>=2.3b0",
     "opentelemetry-sdk>=1.41,<2",
     "wrapt<2",
 ]
 azure_ai-otel = [
     "openai>=1.30,<3",
+    "httpx>=0.28.1",
     "opentelemetry-instrumentation-openai-v2>=2.3b0",
     "opentelemetry-sdk>=1.41,<2",
     "wrapt<2",

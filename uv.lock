@@ -797,7 +797,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "ipykernel" },
     { name = "pip-audit" },
     { name = "pylint-pydantic" },
@@ -816,7 +815,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.28.1" },
     { name = "ipykernel", specifier = "==7.2.0" },
     { name = "pip-audit", specifier = "==2.10.0" },
     { name = "pylint-pydantic", specifier = "==0.4.1" },
@@ -939,6 +937,7 @@ anthropic = [
 ]
 anthropic-otel = [
     { name = "anthropic" },
+    { name = "httpx" },
     { name = "opentelemetry-instrumentation-anthropic" },
     { name = "opentelemetry-sdk" },
     { name = "wrapt" },
@@ -947,12 +946,14 @@ azure = [
     { name = "openai" },
 ]
 azure-ai-otel = [
+    { name = "httpx" },
     { name = "openai" },
     { name = "opentelemetry-instrumentation-openai-v2" },
     { name = "opentelemetry-sdk" },
     { name = "wrapt" },
 ]
 azure-otel = [
+    { name = "httpx" },
     { name = "openai" },
     { name = "opentelemetry-instrumentation-openai-v2" },
     { name = "opentelemetry-sdk" },
@@ -963,6 +964,7 @@ google = [
 ]
 google-otel = [
     { name = "google-genai" },
+    { name = "httpx" },
     { name = "opentelemetry-instrumentation-google-genai" },
     { name = "opentelemetry-sdk" },
     { name = "wrapt" },
@@ -971,6 +973,7 @@ openai = [
     { name = "openai" },
 ]
 openai-otel = [
+    { name = "httpx" },
     { name = "openai" },
     { name = "opentelemetry-instrumentation-openai-v2" },
     { name = "opentelemetry-sdk" },
@@ -985,6 +988,11 @@ requires-dist = [
     { name = "giskard-llm", extras = ["openai", "google", "anthropic"], marker = "extra == 'all'", editable = "libs/giskard-llm" },
     { name = "google-genai", marker = "extra == 'google'", specifier = ">=1.0,<2" },
     { name = "google-genai", marker = "extra == 'google-otel'", specifier = ">=1.0,<2" },
+    { name = "httpx", marker = "extra == 'anthropic-otel'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'azure-ai-otel'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'azure-otel'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'google-otel'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'openai-otel'", specifier = ">=0.28.1" },
     { name = "openai", marker = "extra == 'azure-ai-otel'", specifier = ">=1.30,<3" },
     { name = "openai", marker = "extra == 'azure-otel'", specifier = ">=1.30,<3" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.30,<3" },

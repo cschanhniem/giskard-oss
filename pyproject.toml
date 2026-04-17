@@ -61,7 +61,6 @@ markers = [
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "ipykernel==7.2.0",
     "pip-audit==2.10.0",
     "pylint-pydantic==0.4.1",
