@@ -1,14 +1,27 @@
-from typing import Any, Self
+from typing import Any, Generic, Self
 
 from pydantic import BaseModel, Field, computed_field
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.rule import Rule
+from typing_extensions import TypeVar
 
 from ..protocols import InteractionGenerator
 from .interaction import Interaction
 
+InputType = TypeVar("InputType")
+OutputType = TypeVar("OutputType")
+InteractionType = TypeVar(
+    "InteractionType",
+    bound=Interaction[Any, Any],
+    default=Interaction[InputType, OutputType],
+)
 
-class Trace[InputType, OutputType](BaseModel, frozen=True):
+
+class Trace(
+    BaseModel,
+    Generic[InputType, OutputType, InteractionType],
+    frozen=True,
+):
     """Immutable history of interactions in a scenario.
 
     A trace accumulates all interactions that have occurred during scenario
@@ -19,12 +32,23 @@ class Trace[InputType, OutputType](BaseModel, frozen=True):
     accidentally modify the history. New interactions are added by creating
     new trace instances.
 
+    Type parameters
+    ---------------
+    InputType, OutputType
+        Payload types carried by each interaction.
+    InteractionType
+        The concrete interaction class stored in :attr:`interactions`. Defaults
+        to ``Interaction[InputType, OutputType]`` so existing two-parameter
+        usages keep working; subclasses may specialize it to expose richer
+        interaction types (e.g. ``GenAiInteraction``) without a manual field
+        override.
+
     Attributes
     ----------
-    interactions : list[Interaction[InputType, OutputType]]
+    interactions : list[InteractionType]
         Ordered list of all interactions that have occurred. The most recent
         interaction is at `interactions[-1]`.
-    last : Interaction[InputType, OutputType] | None
+    last : InteractionType | None
         Computed field that returns the last interaction in the trace, or None if empty.
         Equivalent to `interactions[-1]` if interactions exist, None otherwise.
         Available in Python code, Jinja2 prompt templates, and JSONPath expressions.
@@ -51,7 +75,7 @@ class Trace[InputType, OutputType](BaseModel, frozen=True):
     ['Hi there!', "I'm doing well, thanks!"]
     """
 
-    interactions: list[Interaction[InputType, OutputType]] = Field(default_factory=list)
+    interactions: list[InteractionType] = Field(default_factory=list)
 
     annotations: dict[str, Any] = Field(
         default_factory=dict,
@@ -60,7 +84,7 @@ class Trace[InputType, OutputType](BaseModel, frozen=True):
 
     @computed_field
     @property
-    def last(self) -> Interaction[InputType, OutputType] | None:
+    def last(self) -> InteractionType | None:
         """The last interaction in the trace, or None if the trace is empty.
 
         This computed field is equivalent to `interactions[-1]` when interactions exist.
@@ -85,15 +109,13 @@ class Trace[InputType, OutputType](BaseModel, frozen=True):
     @classmethod
     async def from_interactions(
         cls,
-        *interactions: Interaction[InputType, OutputType]
-        | InteractionGenerator[Interaction[InputType, OutputType], Self],
+        *interactions: InteractionType | InteractionGenerator[InteractionType, Self],
     ) -> Self:
         return await cls().with_interactions(*interactions)
 
     async def with_interactions(
         self,
-        *interactions: Interaction[InputType, OutputType]
-        | InteractionGenerator[Interaction[InputType, OutputType], Self],
+        *interactions: InteractionType | InteractionGenerator[InteractionType, Self],
     ) -> Self:
         trace = self
 
@@ -104,10 +126,7 @@ class Trace[InputType, OutputType](BaseModel, frozen=True):
 
     async def with_interaction(
         self,
-        interaction: (
-            Interaction[InputType, OutputType]
-            | InteractionGenerator[Interaction[InputType, OutputType], Self]
-        ),
+        interaction: (InteractionType | InteractionGenerator[InteractionType, Self]),
     ) -> Self:
         if isinstance(interaction, Interaction):
             return self.model_copy(
@@ -127,7 +146,7 @@ class Trace[InputType, OutputType](BaseModel, frozen=True):
             if generator is not None:
                 await generator.aclose()
 
-    # TODO def steps() -> list[list[Interaction[InputType, OutputType]]]: # Index based
+    # TODO def steps() -> list[list[InteractionType]]: # Index based
 
     def __rich_console__(
         self, console: Console, options: ConsoleOptions

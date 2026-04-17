@@ -1,0 +1,67 @@
+[
+  {
+    "event_name": "gen_ai.user.message",
+    "body": {
+      "content": "What's the weather in Paris?"
+    }
+  },
+  {
+    "event_name": "gen_ai.choice",
+    "body": {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "id": "call_VSPygqKTWdrhaFErNvMV18Yl",
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "arguments": "{\"location\":\"Paris\"}"
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "event_name": "gen_ai.user.message",
+    "body": {
+      "content": "What's the weather in Paris?"
+    }
+  },
+  {
+    "event_name": "gen_ai.assistant.message",
+    "body": {
+      "tool_calls": [
+        {
+          "id": "call_VSPygqKTWdrhaFErNvMV18Yl",
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "arguments": "{\"location\":\"Paris\"}"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "event_name": "gen_ai.tool.message",
+    "body": {
+      "content": "rainy, 57°F",
+      "id": "call_VSPygqKTWdrhaFErNvMV18Yl"
+    }
+  },
+  {
+    "event_name": "gen_ai.choice",
+    "body": {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "The weather in Paris is rainy and overcast, with temperatures around 57°F"
+      }
+    }
+  }
+]

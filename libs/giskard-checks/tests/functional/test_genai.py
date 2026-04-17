@@ -16,19 +16,19 @@ from typing import Any
 
 import pytest
 from giskard.checks.core.interaction.gen_ai import (
-    AssistantMessageLike,
-    ChoiceLike,
-    FunctionCallLike,
     GenAiTrace,
-    TextMessageLike,
-    ToolMessageLike,
+    Message,
+    ModelResponse,
+    ToolCallPart,
+    ToolCallResponsePart,
 )
 from giskard.llm import ChatMessage, LLMClient, ToolDef
 
 pytestmark = pytest.mark.functional
 
 # openai-v2 instrumentation only treats the literal "true" as enabling capture for logger.emit()
-os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "true"
+os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "SPAN_AND_EVENT"
+os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] = "gen_ai_latest_experimental"
 
 # -- Provider parametrization -------------------------------------------------
 
@@ -150,19 +150,19 @@ async def test_user_only(provider: str):
     assert resp.choices[0].message.role == "assistant"
 
     events = _gen_ai_events_from_log_exporter(log_exporter)
-    trace = GenAiTrace.from_otel_logs(events)
+    trace = GenAiTrace.from_otel(events, provider=provider)
     assert len(trace.interactions) == 1
     assert len(trace.interactions[0].inputs) == 1
-    assert isinstance(trace.interactions[0].inputs[0], TextMessageLike)
-    assert trace.interactions[0].inputs[0].role == "user"
-    assert trace.interactions[0].inputs[0].content == "Say hello"
+    user_msg = trace.interactions[0].inputs[0]
+    assert isinstance(user_msg, Message)
+    assert user_msg.role == "user"
+    assert user_msg.text == "Say hello"
 
     assert len(trace.interactions[0].outputs) == 1
     out0 = trace.interactions[0].outputs[0]
-    assert isinstance(out0, ChoiceLike)
-    assert out0.message.role == "assistant"
-    assert isinstance(out0.message, AssistantMessageLike)
-    assert out0.message.content == resp.choices[0].message.content
+    assert isinstance(out0, ModelResponse)
+    assert out0.role == "assistant"
+    assert out0.text == resp.choices[0].message.content
 
 
 WEATHER_TOOL: ToolDef = {
@@ -218,38 +218,37 @@ async def test_completion_with_tools(provider: str):
         assert isinstance(resp_two.choices[0].message.content, str)
 
     events = _gen_ai_events_from_log_exporter(log_exporter)
-    trace = GenAiTrace.from_otel_logs(events)
+    trace = GenAiTrace.from_otel(events, provider=provider)
+
     assert len(trace.interactions) == 2
     assert len(trace.interactions[0].inputs) == 1
-    assert isinstance(trace.interactions[0].inputs[0], TextMessageLike)
-    assert trace.interactions[0].inputs[0].role == "user"
-    assert trace.interactions[0].inputs[0].content == "What's the weather in Paris?"
+    first_user = trace.interactions[0].inputs[0]
+    assert isinstance(first_user, Message)
+    assert first_user.role == "user"
+    assert first_user.text == "What's the weather in Paris?"
 
     # Second completion request: full message list (user + assistant tool call + tool result).
     assert len(trace.interactions[1].inputs) == 3
-    assert isinstance(trace.interactions[1].inputs[0], TextMessageLike)
-    assert trace.interactions[1].inputs[0].role == "user"
-    assert trace.interactions[1].inputs[0].content == "What's the weather in London?"
-    assert isinstance(trace.interactions[1].inputs[1], AssistantMessageLike)
-    assert trace.interactions[1].inputs[1].role == "assistant"
-    assert trace.interactions[1].inputs[1].tool_calls is not None
-    assert len(trace.interactions[1].inputs[1].tool_calls) == 1
-    assert (
-        trace.interactions[1].inputs[1].tool_calls[0].id
-        == resp.choices[0].message.tool_calls[0].id
-    )
-    tc0 = trace.interactions[1].inputs[1].tool_calls[0]
-    assert isinstance(tc0, FunctionCallLike)
-    assert tc0.function.name == "get_weather"
-    assert isinstance(trace.interactions[1].inputs[2], ToolMessageLike)
-    assert trace.interactions[1].inputs[2].content == "The weather in London is sunny"
-    assert (
-        trace.interactions[1].inputs[2].id == resp.choices[0].message.tool_calls[0].id
-    )
+    second_user, assistant_call, tool_response = trace.interactions[1].inputs
+    assert second_user.role == "user"
+    assert second_user.text == "What's the weather in London?"
+
+    assert assistant_call.role == "assistant"
+    assert len(assistant_call.tool_calls) == 1
+    tc0 = assistant_call.tool_calls[0]
+    assert isinstance(tc0, ToolCallPart)
+    assert tc0.name == "get_weather"
+    assert tc0.id == resp.choices[0].message.tool_calls[0].id
+
+    assert tool_response.role == "tool"
+    assert len(tool_response.tool_responses) == 1
+    tr0 = tool_response.tool_responses[0]
+    assert isinstance(tr0, ToolCallResponsePart)
+    assert tr0.id == resp.choices[0].message.tool_calls[0].id
+    assert tr0.result == "The weather in London is sunny"
 
     assert len(trace.interactions[1].outputs) == 1
     out1 = trace.interactions[1].outputs[0]
-    assert isinstance(out1, ChoiceLike)
-    assert out1.message.role == "assistant"
-    assert isinstance(out1.message, AssistantMessageLike)
-    assert out1.message.content == resp_two.choices[0].message.content
+    assert isinstance(out1, ModelResponse)
+    assert out1.role == "assistant"
+    assert out1.text == resp_two.choices[0].message.content

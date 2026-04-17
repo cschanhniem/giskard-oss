@@ -1,0 +1,117 @@
+[
+  {
+    "event_name": "gen_ai.user.message",
+    "body": {
+      "content": "What's the weather in Paris?"
+    }
+  },
+  {
+    "event_name": "gen_ai.user.message",
+    "body": {
+      "content": {
+        "tools": [
+          {
+            "name": "get_weather",
+            "description": "Get the weather for a given city",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": ["city"]
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "event_name": "gen_ai.choice",
+    "body": {
+      "index": 0,
+      "message": {
+        "content": null
+      },
+      "finish_reason": "tool_call",
+      "tool_calls": [
+        {
+          "id": "toolu_01G6hjxH3Cmvya6DbX9aNxep",
+          "function": {
+            "name": "get_weather",
+            "arguments": {
+              "city": "Paris"
+            }
+          },
+          "type": "function"
+        }
+      ]
+    }
+  },
+  {
+    "event_name": "gen_ai.user.message",
+    "body": {
+      "content": "What's the weather in London?"
+    }
+  },
+  {
+    "event_name": "gen_ai.assistant.message",
+    "body": {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01G6hjxH3Cmvya6DbX9aNxep",
+          "name": "get_weather",
+          "input": {
+            "city": "Paris"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "event_name": "gen_ai.user.message",
+    "body": {
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_01G6hjxH3Cmvya6DbX9aNxep",
+          "content": "The weather in London is sunny"
+        }
+      ]
+    }
+  },
+  {
+    "event_name": "gen_ai.user.message",
+    "body": {
+      "content": {
+        "tools": [
+          {
+            "name": "get_weather",
+            "description": "Get the weather for a given city",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": ["city"]
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "event_name": "gen_ai.choice",
+    "body": {
+      "index": 0,
+      "message": {
+        "content": "The weather in London is **sunny**! It looks like it's a nice day out."
+      },
+      "finish_reason": "stop"
+    }
+  }
+]
