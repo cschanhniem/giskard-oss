@@ -157,11 +157,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12"]
-        provider: [openai, google, anthropic, azure, azure_ai]
+        # One cell per provider. `otel_extra` is the giskard-llm optional-dependency
+        # group to install; azure_ai reuses azure-otel (both are aliases for openai-otel).
+        include:
+          - { python-version: "3.12", provider: openai,    otel_extra: openai-otel    }
+          - { python-version: "3.12", provider: google,    otel_extra: google-otel    }
+          - { python-version: "3.12", provider: anthropic, otel_extra: anthropic-otel }
+          - { python-version: "3.12", provider: azure,     otel_extra: azure-otel     }
+          - { python-version: "3.12", provider: azure_ai,  otel_extra: azure-otel     }
     name: checks / ${{ matrix.provider }} / ${{ matrix.python-version }}
     env:
       PROVIDER: ${{ matrix.provider }}
+      OTEL_EXTRA: ${{ matrix.otel_extra }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -173,7 +180,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: make install
       - name: Install provider SDK and OpenTelemetry instrumentation
-        run: uv pip install "giskard-llm[${PROVIDER},${PROVIDER}-otel]"
+        run: uv pip install "giskard-llm[$OTEL_EXTRA]"
       - name: Run functional tests
         env:
           OPENAI_API_KEY: ${{ matrix.provider == 'openai' && secrets.OPENAI_API_KEY || '' }}

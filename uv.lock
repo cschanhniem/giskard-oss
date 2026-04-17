@@ -934,6 +934,17 @@ all = [
     { name = "google-genai" },
     { name = "openai" },
 ]
+all-otel = [
+    { name = "anthropic" },
+    { name = "google-genai" },
+    { name = "httpx" },
+    { name = "openai" },
+    { name = "opentelemetry-instrumentation-anthropic" },
+    { name = "opentelemetry-instrumentation-google-genai" },
+    { name = "opentelemetry-instrumentation-openai-v2" },
+    { name = "opentelemetry-sdk" },
+    { name = "wrapt" },
+]
 anthropic = [
     { name = "anthropic" },
 ]
@@ -946,13 +957,6 @@ anthropic-otel = [
 ]
 azure = [
     { name = "openai" },
-]
-azure-ai-otel = [
-    { name = "httpx" },
-    { name = "openai" },
-    { name = "opentelemetry-instrumentation-openai-v2" },
-    { name = "opentelemetry-sdk" },
-    { name = "wrapt" },
 ]
 azure-otel = [
     { name = "httpx" },
@@ -985,38 +989,30 @@ openai-otel = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.40,<1" },
-    { name = "anthropic", marker = "extra == 'anthropic-otel'", specifier = ">=0.40,<1" },
+    { name = "giskard-llm", extras = ["anthropic"], marker = "extra == 'anthropic-otel'", editable = "libs/giskard-llm" },
+    { name = "giskard-llm", extras = ["google"], marker = "extra == 'google-otel'", editable = "libs/giskard-llm" },
     { name = "giskard-llm", extras = ["openai"], marker = "extra == 'azure'", editable = "libs/giskard-llm" },
+    { name = "giskard-llm", extras = ["openai"], marker = "extra == 'openai-otel'", editable = "libs/giskard-llm" },
     { name = "giskard-llm", extras = ["openai", "google", "anthropic"], marker = "extra == 'all'", editable = "libs/giskard-llm" },
+    { name = "giskard-llm", extras = ["openai-otel"], marker = "extra == 'azure-otel'", editable = "libs/giskard-llm" },
+    { name = "giskard-llm", extras = ["openai-otel", "google-otel", "anthropic-otel"], marker = "extra == 'all-otel'", editable = "libs/giskard-llm" },
     { name = "google-genai", marker = "extra == 'google'", specifier = ">=1.0,<2" },
-    { name = "google-genai", marker = "extra == 'google-otel'", specifier = ">=1.0,<2" },
     { name = "httpx", marker = "extra == 'anthropic-otel'", specifier = ">=0.28.1" },
-    { name = "httpx", marker = "extra == 'azure-ai-otel'", specifier = ">=0.28.1" },
-    { name = "httpx", marker = "extra == 'azure-otel'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'google-otel'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'openai-otel'", specifier = ">=0.28.1" },
-    { name = "openai", marker = "extra == 'azure-ai-otel'", specifier = ">=1.30,<3" },
-    { name = "openai", marker = "extra == 'azure-otel'", specifier = ">=1.30,<3" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.30,<3" },
-    { name = "openai", marker = "extra == 'openai-otel'", specifier = ">=1.30,<3" },
     { name = "opentelemetry-instrumentation-anthropic", marker = "extra == 'anthropic-otel'", specifier = ">=0.59b0" },
     { name = "opentelemetry-instrumentation-google-genai", marker = "extra == 'google-otel'", specifier = ">=0.7b0" },
-    { name = "opentelemetry-instrumentation-openai-v2", marker = "extra == 'azure-ai-otel'", specifier = ">=2.3b0" },
-    { name = "opentelemetry-instrumentation-openai-v2", marker = "extra == 'azure-otel'", specifier = ">=2.3b0" },
     { name = "opentelemetry-instrumentation-openai-v2", marker = "extra == 'openai-otel'", specifier = ">=2.3b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'anthropic-otel'", specifier = ">=1.41,<2" },
-    { name = "opentelemetry-sdk", marker = "extra == 'azure-ai-otel'", specifier = ">=1.41,<2" },
-    { name = "opentelemetry-sdk", marker = "extra == 'azure-otel'", specifier = ">=1.41,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'google-otel'", specifier = ">=1.41,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'openai-otel'", specifier = ">=1.41,<2" },
     { name = "pydantic", specifier = ">=2.11.0,<3" },
     { name = "wrapt", marker = "extra == 'anthropic-otel'", specifier = "<2" },
-    { name = "wrapt", marker = "extra == 'azure-ai-otel'", specifier = "<2" },
-    { name = "wrapt", marker = "extra == 'azure-otel'", specifier = "<2" },
     { name = "wrapt", marker = "extra == 'google-otel'", specifier = "<2" },
     { name = "wrapt", marker = "extra == 'openai-otel'", specifier = "<2" },
 ]
-provides-extras = ["openai", "google", "anthropic", "azure", "all", "openai-otel", "google-otel", "anthropic-otel", "azure-otel", "azure-ai-otel"]
+provides-extras = ["openai", "google", "anthropic", "azure", "all", "openai-otel", "google-otel", "anthropic-otel", "azure-otel", "all-otel"]
 
 [[package]]
 name = "google-auth"

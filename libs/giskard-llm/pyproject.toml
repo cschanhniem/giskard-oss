@@ -17,8 +17,9 @@ anthropic = ["anthropic>=0.40,<1"]
 azure = ["giskard-llm[openai]"]  # alias: azure/ and azure_ai/ use the openai SDK
 all = ["giskard-llm[openai,google,anthropic]"]
 # Provider SDK + OpenTelemetry GenAI instrumentation (semconv logs). Used by giskard-checks functional tests.
+# Each *-otel extra depends on the matching base extra so SDK version bounds stay single-sourced.
 openai-otel = [
-    "openai>=1.30,<3",
+    "giskard-llm[openai]",
     "httpx>=0.28.1",
     "opentelemetry-instrumentation-openai-v2>=2.3b0",
     "opentelemetry-sdk>=1.41,<2",
@@ -26,34 +27,21 @@ openai-otel = [
     "wrapt<2",
 ]
 google-otel = [
-    "google-genai>=1.0,<2",
+    "giskard-llm[google]",
     "httpx>=0.28.1",
     "opentelemetry-instrumentation-google-genai>=0.7b0",
     "opentelemetry-sdk>=1.41,<2",
     "wrapt<2",
 ]
 anthropic-otel = [
-    "anthropic>=0.40,<1",
+    "giskard-llm[anthropic]",
     "httpx>=0.28.1",
     "opentelemetry-instrumentation-anthropic>=0.59b0",
     "opentelemetry-sdk>=1.41,<2",
     "wrapt<2",
 ]
-# Azure OpenAI and Azure AI Foundry use the OpenAI SDK; same OTEL instrumentation as openai.
-azure-otel = [
-    "openai>=1.30,<3",
-    "httpx>=0.28.1",
-    "opentelemetry-instrumentation-openai-v2>=2.3b0",
-    "opentelemetry-sdk>=1.41,<2",
-    "wrapt<2",
-]
-azure_ai-otel = [
-    "openai>=1.30,<3",
-    "httpx>=0.28.1",
-    "opentelemetry-instrumentation-openai-v2>=2.3b0",
-    "opentelemetry-sdk>=1.41,<2",
-    "wrapt<2",
-]
+azure-otel = ["giskard-llm[openai-otel]"]  # alias: azure/ and azure_ai/ use the openai SDK
+all-otel = ["giskard-llm[openai-otel,google-otel,anthropic-otel]"]
 
 [build-system]
 requires = ["hatchling"]
