@@ -936,3 +936,93 @@ class TestAnthropicConvertMessages:
         )
         assert len(result) == 3
         assert [m["role"] for m in result] == ["user", "assistant", "user"]
+
+
+# -- AzureAIProvider base_url shaping -------------------------------------------
+
+
+class TestAzureAIFoundryBaseUrlShaping:
+    """``AzureAIProvider`` auto-suffixes bare Foundry root URLs with ``/models``.
+
+    Matches litellm's ``azure_ai/`` URL shaping so existing
+    ``AZURE_AI_API_BASE`` values (the bare Foundry root) keep working.
+    """
+
+    @pytest.mark.parametrize(
+        ("input_url", "expected"),
+        [
+            pytest.param(
+                "https://dev.services.ai.azure.com",
+                "https://dev.services.ai.azure.com/models",
+                id="foundry-root-no-slash",
+            ),
+            pytest.param(
+                "https://dev.services.ai.azure.com/",
+                "https://dev.services.ai.azure.com/models",
+                id="foundry-root-trailing-slash",
+            ),
+            pytest.param(
+                "https://dev.services.ai.azure.com/models",
+                "https://dev.services.ai.azure.com/models",
+                id="foundry-with-models-path-unchanged",
+            ),
+            pytest.param(
+                "https://dev.services.ai.azure.com/openai/v1",
+                "https://dev.services.ai.azure.com/openai/v1",
+                id="foundry-with-openai-v1-path-unchanged",
+            ),
+            pytest.param(
+                "https://dev.services.ai.azure.com?api-version=2024-05-01-preview",
+                "https://dev.services.ai.azure.com/models?api-version=2024-05-01-preview",
+                id="foundry-root-preserves-query",
+            ),
+            pytest.param(
+                "https://custom.example.com",
+                "https://custom.example.com",
+                id="non-foundry-host-unchanged",
+            ),
+            pytest.param(
+                "https://my-resource.openai.azure.com",
+                "https://my-resource.openai.azure.com",
+                id="classic-azure-openai-host-unchanged",
+            ),
+            pytest.param(None, None, id="none-passthrough"),
+            pytest.param("", "", id="empty-passthrough"),
+        ],
+    )
+    def test_shape_foundry_base_url(self, input_url, expected):
+        from giskard.llm.providers.azure_ai import _shape_foundry_base_url
+
+        assert _shape_foundry_base_url(input_url) == expected
+
+    def test_provider_init_shapes_env_endpoint(self, monkeypatch):
+        """``AzureAIProvider()`` shapes the URL read from ``AZURE_AI_ENDPOINT``
+        before handing it to ``openai.AsyncOpenAI``."""
+        from giskard.llm.providers.azure_ai import AzureAIProvider
+
+        monkeypatch.setenv("AZURE_AI_API_KEY", "k")
+        monkeypatch.setenv("AZURE_AI_ENDPOINT", "https://dev.services.ai.azure.com")
+
+        with patch("openai.AsyncOpenAI") as mock_client:
+            AzureAIProvider()
+
+        kwargs = mock_client.call_args.kwargs
+        assert kwargs["base_url"] == "https://dev.services.ai.azure.com/models"
+        assert kwargs["api_key"] == "k"
+
+    def test_provider_init_preserves_explicit_path(self, monkeypatch):
+        """Explicit sub-path in ``base_url`` kwarg is preserved unchanged."""
+        from giskard.llm.providers.azure_ai import AzureAIProvider
+
+        monkeypatch.delenv("AZURE_AI_ENDPOINT", raising=False)
+
+        with patch("openai.AsyncOpenAI") as mock_client:
+            AzureAIProvider(
+                api_key="k",
+                base_url="https://dev.services.ai.azure.com/openai/v1",
+            )
+
+        assert (
+            mock_client.call_args.kwargs["base_url"]
+            == "https://dev.services.ai.azure.com/openai/v1"
+        )
