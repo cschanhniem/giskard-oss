@@ -797,20 +797,14 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "anthropic" },
     { name = "httpx" },
     { name = "ipykernel" },
-    { name = "openai" },
-    { name = "opentelemetry-instrumentation-anthropic" },
-    { name = "opentelemetry-instrumentation-openai-v2" },
-    { name = "opentelemetry-sdk" },
     { name = "pip-audit" },
     { name = "pylint-pydantic" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-timeout" },
-    { name = "wrapt" },
 ]
 
 [package.metadata]
@@ -822,20 +816,14 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "anthropic", specifier = ">=0.40,<1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "ipykernel", specifier = "==7.2.0" },
-    { name = "openai", specifier = ">=2.21.0" },
-    { name = "opentelemetry-instrumentation-anthropic", specifier = ">=0.59.2" },
-    { name = "opentelemetry-instrumentation-openai-v2", specifier = ">=2.3b0" },
-    { name = "opentelemetry-sdk", specifier = ">=1.41,<2" },
     { name = "pip-audit", specifier = "==2.10.0" },
     { name = "pylint-pydantic", specifier = "==0.4.1" },
     { name = "pytest", specifier = "==9.0.3" },
     { name = "pytest-asyncio", specifier = "==1.3.0" },
     { name = "pytest-cov", specifier = ">=6.1,<8" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
-    { name = "wrapt", specifier = "<2" },
 ]
 
 [[package]]
@@ -949,26 +937,76 @@ all = [
 anthropic = [
     { name = "anthropic" },
 ]
+anthropic-otel = [
+    { name = "anthropic" },
+    { name = "opentelemetry-instrumentation-anthropic" },
+    { name = "opentelemetry-sdk" },
+    { name = "wrapt" },
+]
 azure = [
     { name = "openai" },
+]
+azure-ai-otel = [
+    { name = "openai" },
+    { name = "opentelemetry-instrumentation-openai-v2" },
+    { name = "opentelemetry-sdk" },
+    { name = "wrapt" },
+]
+azure-otel = [
+    { name = "openai" },
+    { name = "opentelemetry-instrumentation-openai-v2" },
+    { name = "opentelemetry-sdk" },
+    { name = "wrapt" },
 ]
 google = [
     { name = "google-genai" },
 ]
+google-otel = [
+    { name = "google-genai" },
+    { name = "opentelemetry-instrumentation-google-genai" },
+    { name = "opentelemetry-sdk" },
+    { name = "wrapt" },
+]
 openai = [
     { name = "openai" },
+]
+openai-otel = [
+    { name = "openai" },
+    { name = "opentelemetry-instrumentation-openai-v2" },
+    { name = "opentelemetry-sdk" },
+    { name = "wrapt" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.40,<1" },
+    { name = "anthropic", marker = "extra == 'anthropic-otel'", specifier = ">=0.40,<1" },
     { name = "giskard-llm", extras = ["openai"], marker = "extra == 'azure'", editable = "libs/giskard-llm" },
     { name = "giskard-llm", extras = ["openai", "google", "anthropic"], marker = "extra == 'all'", editable = "libs/giskard-llm" },
     { name = "google-genai", marker = "extra == 'google'", specifier = ">=1.0,<2" },
+    { name = "google-genai", marker = "extra == 'google-otel'", specifier = ">=1.0,<2" },
+    { name = "openai", marker = "extra == 'azure-ai-otel'", specifier = ">=1.30,<3" },
+    { name = "openai", marker = "extra == 'azure-otel'", specifier = ">=1.30,<3" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.30,<3" },
+    { name = "openai", marker = "extra == 'openai-otel'", specifier = ">=1.30,<3" },
+    { name = "opentelemetry-instrumentation-anthropic", marker = "extra == 'anthropic-otel'", specifier = ">=0.59b0" },
+    { name = "opentelemetry-instrumentation-google-genai", marker = "extra == 'google-otel'", specifier = ">=0.7b0" },
+    { name = "opentelemetry-instrumentation-openai-v2", marker = "extra == 'azure-ai-otel'", specifier = ">=2.3b0" },
+    { name = "opentelemetry-instrumentation-openai-v2", marker = "extra == 'azure-otel'", specifier = ">=2.3b0" },
+    { name = "opentelemetry-instrumentation-openai-v2", marker = "extra == 'openai-otel'", specifier = ">=2.3b0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'anthropic-otel'", specifier = ">=1.41,<2" },
+    { name = "opentelemetry-sdk", marker = "extra == 'azure-ai-otel'", specifier = ">=1.41,<2" },
+    { name = "opentelemetry-sdk", marker = "extra == 'azure-otel'", specifier = ">=1.41,<2" },
+    { name = "opentelemetry-sdk", marker = "extra == 'google-otel'", specifier = ">=1.41,<2" },
+    { name = "opentelemetry-sdk", marker = "extra == 'openai-otel'", specifier = ">=1.41,<2" },
     { name = "pydantic", specifier = ">=2.11.0,<3" },
+    { name = "wrapt", marker = "extra == 'anthropic-otel'", specifier = "<2" },
+    { name = "wrapt", marker = "extra == 'azure-ai-otel'", specifier = "<2" },
+    { name = "wrapt", marker = "extra == 'azure-otel'", specifier = "<2" },
+    { name = "wrapt", marker = "extra == 'google-otel'", specifier = "<2" },
+    { name = "wrapt", marker = "extra == 'openai-otel'", specifier = "<2" },
 ]
-provides-extras = ["openai", "google", "anthropic", "azure", "all"]
+provides-extras = ["openai", "google", "anthropic", "azure", "all", "openai-otel", "google-otel", "anthropic-otel", "azure-otel", "azure-ai-otel"]
 
 [[package]]
 name = "google-auth"
@@ -1792,6 +1830,21 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-instrumentation-google-genai"
+version = "0.7b0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "opentelemetry-util-genai" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/59/595e5ed05715c47cf49ac7e30d0a4cf6ed41e00524401c46c9d92b84623c/opentelemetry_instrumentation_google_genai-0.7b0.tar.gz", hash = "sha256:35158682dfd00201ef3864b47dda95d6062188e8a599ecabd383688e7eba2824", size = 52057, upload-time = "2026-02-20T21:56:23.116Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bb/97/2c26687c6ea0747bb225ce7e5506f8f87e3e7ce4204c2900798177aa7792/opentelemetry_instrumentation_google_genai-0.7b0-py3-none-any.whl", hash = "sha256:b579d7bd3dda1aae1b76bfebbe86adcc88eadb2c08d11e864fbdecf370b19b25", size = 31402, upload-time = "2026-02-20T21:56:22.149Z" },
+]
+
+[[package]]
 name = "opentelemetry-instrumentation-openai-v2"
 version = "2.3b0"
 source = { registry = "https://pypi.org/simple" }
@@ -1843,6 +1896,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/24/02/10aeacc37a38a3a8fa16ff67bec1ae3bf882539f6f9efb0f70acf802ca2d/opentelemetry_semantic_conventions_ai-0.5.1.tar.gz", hash = "sha256:153906200d8c1d2f8e09bd78dbef526916023de85ac3dab35912bfafb69ff04c", size = 26533, upload-time = "2026-03-26T14:20:38.73Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/55/22/41fb05f1dc5fda2c468e05a41814c20859016c85117b66c8a257cae814f6/opentelemetry_semantic_conventions_ai-0.5.1-py3-none-any.whl", hash = "sha256:25aeb22bd261543b4898a73824026d96770e5351209c7d07a0b1314762b1f6e4", size = 11250, upload-time = "2026-03-26T14:20:37.108Z" },
+]
+
+[[package]]
+name = "opentelemetry-util-genai"
+version = "0.3b0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a2/d8/4dd2fb622d26ec45b10ef63eb87fd512f5d7467c7bd35ce390629bd6dff8/opentelemetry_util_genai-0.3b0.tar.gz", hash = "sha256:83e127789a9ad615b8ca65f05fc36955a67ce257b06142bfd46159a3b7ed73d3", size = 31800, upload-time = "2026-02-20T16:16:14.807Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/e5/fada54909e445d7b4007f8b96221d571999efeab9446f3127cc1cebe5e07/opentelemetry_util_genai-0.3b0-py3-none-any.whl", hash = "sha256:ebc2b01bcb891ddc7218452470d189d3321cd742653299ff8e7de45debcfb986", size = 28426, upload-time = "2026-02-20T16:16:12.027Z" },
 ]
 
 [[package]]

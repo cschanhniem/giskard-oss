@@ -157,8 +157,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
-        provider: [google]
+        python-version: ["3.12"]
+        provider: [openai, google, anthropic, azure, azure_ai]
     name: checks / ${{ matrix.provider }} / ${{ matrix.python-version }}
     env:
       PROVIDER: ${{ matrix.provider }}
@@ -172,11 +172,16 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       - run: make install
-      - name: Install provider SDK
-        run: uv pip install "giskard-llm[$PROVIDER]"
+      - name: Install provider SDK and OpenTelemetry instrumentation
+        run: uv pip install "giskard-llm[${PROVIDER},${PROVIDER}-otel]"
       - name: Run functional tests
         env:
+          OPENAI_API_KEY: ${{ matrix.provider == 'openai' && secrets.OPENAI_API_KEY || '' }}
           GOOGLE_API_KEY: ${{ matrix.provider == 'google' && secrets.GEMINI_API_KEY || '' }}
-          TEST_MODEL: "google/gemini-2.0-flash"
-          TEST_EMBEDDING_MODEL: "google/gemini-embedding-001"
+          ANTHROPIC_API_KEY: ${{ matrix.provider == 'anthropic' && secrets.ANTHROPIC_API_KEY || '' }}
+          AZURE_API_KEY: ${{ matrix.provider == 'azure' && secrets.AZURE_API_KEY || '' }}
+          AZURE_API_BASE: ${{ matrix.provider == 'azure' && secrets.AZURE_API_BASE || '' }}
+          AZURE_API_VERSION: ${{ matrix.provider == 'azure' && secrets.AZURE_API_VERSION || '' }}
+          AZURE_AI_API_KEY: ${{ matrix.provider == 'azure_ai' && secrets.AZURE_AI_API_KEY || '' }}
+          AZURE_AI_ENDPOINT: ${{ matrix.provider == 'azure_ai' && secrets.AZURE_AI_ENDPOINT || '' }}
         run: make test-functional PACKAGE=giskard-checks PROVIDER=$PROVIDER

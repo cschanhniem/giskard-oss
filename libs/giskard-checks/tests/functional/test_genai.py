@@ -2,7 +2,12 @@
 
 Design principle: every test must work with the weakest model available.
 Assert on structure (non-empty, correct role, correct type), not content.
+
+OpenTelemetry imports are lazy so ``pytest -m "not functional"`` does not require
+OTEL packages, and CI can install only ``giskard-llm[$PROVIDER,$PROVIDER-otel]``.
 """
+
+# pyright: reportMissingImports=false
 
 import os
 from collections.abc import Iterator
@@ -16,15 +21,6 @@ from giskard.checks.core.interaction.gen_ai import (
     TextMessageLike,
 )
 from giskard.llm import LLMClient
-from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
-from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
-from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
-from opentelemetry.sdk._logs import LoggerProvider
-from opentelemetry.sdk._logs.export import (
-    InMemoryLogRecordExporter,
-    SimpleLogRecordProcessor,
-)
-from opentelemetry.sdk.trace import TracerProvider
 
 pytestmark = pytest.mark.functional
 
@@ -82,16 +78,57 @@ _PROVIDER_PARAMS = [
     for provider in _MODELS
 ]
 
-INSTRUMENTORS = {
-    "openai": OpenAIInstrumentor(),
-    "anthropic": AnthropicInstrumentor(use_legacy_attributes=False),
-}
+
+def _instrumentor_for(provider: str) -> Any:
+    """Load the OTEL instrumentor for ``provider`` (lazy; one SDK per CI matrix cell)."""
+    if provider in ("openai", "azure", "azure_ai"):
+        try:
+            from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+
+            return OpenAIInstrumentor()
+        except ImportError as exc:
+            pytest.skip(
+                f"Install giskard-llm[{provider},{provider}-otel] (OpenTelemetry OpenAI instrumentation). {exc}"
+            )
+    if provider == "google":
+        try:
+            from opentelemetry.instrumentation.google_genai import (
+                GoogleGenAiSdkInstrumentor,
+            )
+
+            return GoogleGenAiSdkInstrumentor()
+        except ImportError as exc:
+            pytest.skip(
+                f"Install giskard-llm[google,google-otel] (OpenTelemetry Google GenAI instrumentation). {exc}"
+            )
+    if provider == "anthropic":
+        try:
+            from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
+
+            return AnthropicInstrumentor(use_legacy_attributes=False)
+        except ImportError as exc:
+            pytest.skip(
+                f"Install giskard-llm[anthropic,anthropic-otel] (OpenTelemetry Anthropic instrumentation). {exc}"
+            )
+    raise AssertionError(f"unknown provider: {provider}")
 
 
 @contextmanager
-def _otel_in_memory_log_exporter(instrumentor: BaseInstrumentor) -> Iterator[Any]:
+def _otel_in_memory_log_exporter(provider: str) -> Iterator[Any]:
     """Capture gen_ai log events (Anthropic instrumentation uses the Logs API when not legacy)."""
+    try:
+        from opentelemetry.sdk._logs import LoggerProvider
+        from opentelemetry.sdk._logs.export import (
+            InMemoryLogRecordExporter,
+            SimpleLogRecordProcessor,
+        )
+        from opentelemetry.sdk.trace import TracerProvider
+    except ImportError as exc:
+        pytest.skip(
+            f"Install opentelemetry-sdk (e.g. giskard-llm[provider,provider-otel] extras). {exc}"
+        )
 
+    instrumentor = _instrumentor_for(provider)
     log_exporter = InMemoryLogRecordExporter()
     logger_provider = LoggerProvider()
     logger_provider.add_log_record_processor(SimpleLogRecordProcessor(log_exporter))
@@ -131,10 +168,7 @@ def _make_client(provider: str) -> tuple[LLMClient, str]:
 @pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
 async def test_user_only(provider: str):
     """Single user message -> non-empty assistant response."""
-    if provider not in INSTRUMENTORS:
-        pytest.skip(f"No instrumentor for provider: {provider}")
-
-    with _otel_in_memory_log_exporter(INSTRUMENTORS[provider]) as log_exporter:
+    with _otel_in_memory_log_exporter(provider) as log_exporter:
         client, model = _make_client(provider)
         resp = await client.acompletion(
             model, [{"role": "user", "content": "Say hello"}]
