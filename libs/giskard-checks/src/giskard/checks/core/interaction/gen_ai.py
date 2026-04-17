@@ -38,7 +38,7 @@ class FunctionLike(BaseModel, frozen=True, extra="allow"):
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield f"{self.name}(${repr(self.arguments)})"
+        yield f"{self.name}({repr(self.arguments)})"
 
 
 class ToolCallLike(BaseModel, frozen=True, extra="allow"):
