@@ -79,3 +79,54 @@ def test_from_otel_logs_two_requests():
     assert trace.interactions[1].inputs[0].content == "Second"
     assert isinstance(trace.interactions[1].outputs[0].message, TextMessageLike)
     assert trace.interactions[1].outputs[0].message.content == "Reply2"
+
+
+def test_from_otel_logs_drop_redundant_full_history():
+    """OTEL may repeat the full conversation in inputs before each completion."""
+    events = [
+        {
+            "event_name": "gen_ai.user.message",
+            "body": {"content": "First"},
+        },
+        {
+            "event_name": "gen_ai.choice",
+            "body": {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "Reply1"},
+            },
+        },
+        {
+            "event_name": "gen_ai.user.message",
+            "body": {"content": "First"},
+        },
+        {
+            "event_name": "gen_ai.assistant.message",
+            "body": {"content": "Reply1"},
+        },
+        {
+            "event_name": "gen_ai.user.message",
+            "body": {"content": "Second"},
+        },
+        {
+            "event_name": "gen_ai.choice",
+            "body": {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "Reply2"},
+            },
+        },
+    ]
+    trace_raw = GenAiTrace.from_otel_logs(events)
+    assert trace_raw.inputs_redundant_prefix_stripped is False
+    assert len(trace_raw.interactions[1].inputs) == 3
+    raw_second_turn_user = trace_raw.interactions[1].inputs[2]
+    assert isinstance(raw_second_turn_user, TextMessageLike)
+    assert raw_second_turn_user.content == "Second"
+
+    trace_deduped = GenAiTrace.from_otel_logs(events, drop_redundant_input_history=True)
+    assert trace_deduped.inputs_redundant_prefix_stripped is True
+    assert len(trace_deduped.interactions[1].inputs) == 1
+    deduped_second_turn_user = trace_deduped.interactions[1].inputs[0]
+    assert isinstance(deduped_second_turn_user, TextMessageLike)
+    assert deduped_second_turn_user.content == "Second"

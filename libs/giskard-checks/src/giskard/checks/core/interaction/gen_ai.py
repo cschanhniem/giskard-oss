@@ -116,6 +116,15 @@ class ChoiceLike(BaseModel, frozen=True, extra="allow"):
 _AssistantMessageLikeTypeAdapter = TypeAdapter(AssistantMessageLike)
 
 
+def _start_index_after_last_assistant(messages: list[MessageLike]) -> int:
+    """Index to slice ``messages`` so only entries after the last ``assistant`` remain."""
+    last_assistant = -1
+    for i, m in enumerate(messages):
+        if m.role == "assistant":
+            last_assistant = i
+    return last_assistant + 1
+
+
 def _body_with_role(role: str, body: dict[str, Any]) -> dict[str, Any]:
     """Role is implicit when matching the event name (genai.<role>.message)."""
     return {"role": role} | body
@@ -145,13 +154,40 @@ def _event_name_and_body(event: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 
 class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
+    """Trace of GenAI semconv messages and choices, including OTEL log import."""
+
+    inputs_redundant_prefix_stripped: bool = False
+
     @classmethod
     def from_otel_logs(
         cls,
         events: list[dict[str, Any]],
         /,
+        *,
         raise_on_unknown_event: bool = True,
+        drop_redundant_input_history: bool = False,
     ) -> Self:
+        """Parse OTEL GenAI semconv events into a :class:`GenAiTrace`.
+
+        Parameters
+        ----------
+        events
+            Ordered log-like dicts with ``event_name`` (e.g. ``gen_ai.user.message``)
+            and ``body`` (message or choice payload).
+        raise_on_unknown_event
+            If ``True``, raise when ``event_name`` is not recognized.
+        drop_redundant_input_history
+            If ``True``, each flushed interaction stores only messages that appear
+            after the last ``assistant`` message in ``inputs``. Some OTEL
+            instrumentations repeat the **full** conversation in the message stream
+            before every completion; this drops the prefix up to and including that
+            repeated assistant turn.
+
+        Returns
+        -------
+        GenAiTrace
+            Parsed trace of interactions (inputs and choice outputs per turn).
+        """
         interactions: list[Interaction[list[MessageLike], list[ChoiceLike]]] = []
         inputs: list[MessageLike] = []
         choices: list[ChoiceLike] = []
@@ -160,7 +196,12 @@ class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
             nonlocal inputs, choices
             if not choices:
                 return
-            interactions.append(Interaction(inputs=inputs, outputs=choices))
+            stored_inputs = (
+                inputs[_start_index_after_last_assistant(inputs) :]
+                if drop_redundant_input_history
+                else inputs
+            )
+            interactions.append(Interaction(inputs=stored_inputs, outputs=choices))
             inputs = []
             choices = []
 
@@ -203,7 +244,10 @@ class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
                 f"No final choice event found after processing all events, remaining inputs: {inputs}"
             )
 
-        return cls(interactions=interactions)
+        return cls(
+            interactions=interactions,
+            inputs_redundant_prefix_stripped=drop_redundant_input_history,
+        )
 
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
@@ -212,19 +256,11 @@ class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
             yield "[dim]No interactions found[/dim]"
             return
 
-        for idx, interaction in enumerate(self.interactions):
-            assistant_messages = [
-                assistant_message
-                for assistant_message in interaction.inputs
-                if assistant_message.role == "assistant"
-            ]
-            skip_count = min(len(assistant_messages), idx)
-            for inputs in interaction.inputs:
-                if skip_count > 0:
-                    if inputs.role == "assistant":
-                        skip_count -= 1
-                    continue
+        for interaction in self.interactions:
+            p = _start_index_after_last_assistant(interaction.inputs)
+            input_messages = interaction.inputs[p:]
 
+            for inputs in input_messages:
                 yield from inputs.__rich_console__(console, options)
 
             for outputs in interaction.outputs:
