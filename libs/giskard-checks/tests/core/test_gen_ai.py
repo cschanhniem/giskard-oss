@@ -1,5 +1,8 @@
 """Unit tests for ``GenAiTrace.from_otel_logs``."""
 
+import logging
+
+import pytest
 from giskard.checks.core.interaction.gen_ai import (
     AssistantMessageLike,
     GenAiTrace,
@@ -134,3 +137,48 @@ def test_from_otel_logs_drop_redundant_full_history():
     deduped_second_turn_user = trace_deduped.interactions[1].inputs[0]
     assert isinstance(deduped_second_turn_user, TextMessageLike)
     assert deduped_second_turn_user.content == "Second"
+
+
+def test_from_otel_logs_trailing_inputs_without_choice_ignored(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Trailing message events with no ``gen_ai.choice`` do not fail parsing."""
+    events = [
+        {
+            "event_name": "gen_ai.user.message",
+            "body": {"content": "First"},
+        },
+        {
+            "event_name": "gen_ai.choice",
+            "body": {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "Reply1"},
+            },
+        },
+        {
+            "event_name": "gen_ai.user.message",
+            "body": {"content": "Second — no completion logged"},
+        },
+    ]
+    with caplog.at_level(logging.WARNING):
+        trace = GenAiTrace.from_otel_logs(events)
+    assert len(trace.interactions) == 1
+    assert trace.interactions[0].inputs[0].content == "First"
+    assert any("gen_ai.choice" in r.message for r in caplog.records)
+
+
+def test_from_otel_logs_only_messages_no_choice_returns_empty(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A stream that ends before any choice still parses (empty trace)."""
+    events = [
+        {
+            "event_name": "gen_ai.user.message",
+            "body": {"content": "Hello"},
+        },
+    ]
+    with caplog.at_level(logging.WARNING):
+        trace = GenAiTrace.from_otel_logs(events)
+    assert trace.interactions == []
+    assert any("gen_ai.choice" in r.message for r in caplog.records)

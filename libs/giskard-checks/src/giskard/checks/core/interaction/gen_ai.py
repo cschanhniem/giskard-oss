@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, model_validator
@@ -7,6 +8,8 @@ from rich.rule import Rule
 
 from .interaction import Interaction
 from .trace import Trace
+
+logger = logging.getLogger(__name__)
 
 ROLE_COLOR_MAPPING = {
     "system": "bold green",
@@ -208,6 +211,10 @@ class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
             before every completion; this drops the prefix up to and including that
             repeated assistant turn.
 
+        Trailing ``gen_ai.*.message`` events without a following ``gen_ai.choice``
+        (e.g. incomplete log streams or interrupted requests) are ignored after
+        logging a warning; successfully parsed interactions are still returned.
+
         Returns
         -------
         GenAiTrace
@@ -264,9 +271,14 @@ class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
                 raise ValueError(f"Unknown event name: {event_name}")
 
         _flush_if_has_choices()
+        # Trailing inputs without choices are ignored to handle incomplete log streams.
         if inputs:
-            raise ValueError(
-                f"No final choice event found after processing all events, remaining inputs: {inputs}"
+            logger.warning(
+                (
+                    "Ignoring %d input message(s) without a final gen_ai.choice "
+                    "(incomplete log stream or interrupted request)"
+                ),
+                len(inputs),
             )
 
         return cls(
