@@ -107,7 +107,7 @@ def _otel_in_memory_log_exporter(instrumentor: BaseInstrumentor) -> Iterator[Any
 
 
 def _gen_ai_events_from_log_exporter(log_exporter: Any) -> list[dict[str, Any]]:
-    """Convert OTel log records to the shape expected by ``GenAiTrace.from_otel_events``."""
+    """Convert OTel log records to the shape expected by ``GenAiTrace.from_otel_logs``."""
     events: list[dict[str, Any]] = []
     for readable in log_exporter.get_finished_logs():
         lr = readable.log_record
@@ -151,9 +151,9 @@ async def test_user_only(provider: str):
     assert trace.interactions[0].inputs[0].role == "user"
     assert trace.interactions[0].inputs[0].content == "Say hello"
 
-    assert isinstance(trace.interactions[0].outputs, ChoiceLike)
-    assert trace.interactions[0].outputs.message.role == "assistant"
-    assert isinstance(trace.interactions[0].outputs.message, TextMessageLike)
-    assert (
-        trace.interactions[0].outputs.message.content == resp.choices[0].message.content
-    )
+    assert len(trace.interactions[0].outputs) == 1
+    out0 = trace.interactions[0].outputs[0]
+    assert isinstance(out0, ChoiceLike)
+    assert out0.message.role == "assistant"
+    assert isinstance(out0.message, TextMessageLike)
+    assert out0.message.content == resp.choices[0].message.content

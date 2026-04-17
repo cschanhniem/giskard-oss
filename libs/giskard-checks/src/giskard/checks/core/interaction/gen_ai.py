@@ -66,7 +66,7 @@ def _event_name_and_body(event: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     return event_name, body
 
 
-class GenAiTrace(Trace[list[MessageLike], ChoiceLike], frozen=True):
+class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
     @classmethod
     def from_otel_logs(
         cls,
@@ -74,27 +74,40 @@ class GenAiTrace(Trace[list[MessageLike], ChoiceLike], frozen=True):
         /,
         raise_on_unknown_event: bool = True,
     ) -> Self:
-        interactions: list[Interaction[list[MessageLike], ChoiceLike]] = []
+        interactions: list[Interaction[list[MessageLike], list[ChoiceLike]]] = []
         inputs: list[MessageLike] = []
+        choices: list[ChoiceLike] = []
+
+        def _flush_if_has_choices() -> None:
+            nonlocal inputs, choices
+            if not choices:
+                return
+            interactions.append(Interaction(inputs=inputs, outputs=choices))
+            inputs = []
+            choices = []
 
         for event in events:
             event_name, body = _event_name_and_body(event)
 
             if event_name == "gen_ai.system.message":
+                _flush_if_has_choices()
                 inputs.append(
                     TextMessageLike.model_validate(_body_with_role("system", body))
                 )
             elif event_name == "gen_ai.user.message":
+                _flush_if_has_choices()
                 inputs.append(
                     TextMessageLike.model_validate(_body_with_role("user", body))
                 )
             elif event_name == "gen_ai.assistant.message":
+                _flush_if_has_choices()
                 inputs.append(
                     _AssistantMessageLikeTypeAdapter.validate_python(
                         _body_with_role("assistant", body)
                     )
                 )
             elif event_name == "gen_ai.tool.message":
+                _flush_if_has_choices()
                 inputs.append(
                     ToolMessageLike.model_validate(_body_with_role("tool", body))
                 )
@@ -102,11 +115,11 @@ class GenAiTrace(Trace[list[MessageLike], ChoiceLike], frozen=True):
                 choice = ChoiceLike.model_validate(
                     _normalize_choice_body_for_semconv(body)
                 )
-                interactions.append(Interaction(inputs=inputs, outputs=choice))
-                inputs = []
+                choices.append(choice)
             elif raise_on_unknown_event:
                 raise ValueError(f"Unknown event name: {event_name}")
 
+        _flush_if_has_choices()
         if inputs:
             raise ValueError(
                 f"No final choice event found after processing all events, remaining inputs: {inputs}"
