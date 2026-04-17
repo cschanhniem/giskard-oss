@@ -228,6 +228,8 @@ class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
             nonlocal inputs, choices
             if not choices:
                 return
+            # TODO: Handle when only last log is passed (no redundancy)
+            # Shall we map assistant MessageLike to choices or ChoiceLike to MessageLike?
             stored_inputs = (
                 inputs[_start_index_after_last_assistant(inputs) :]
                 if drop_redundant_input_history
