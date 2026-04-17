@@ -17,8 +17,11 @@ from typing import Any
 import pytest
 from giskard.checks.core.interaction.gen_ai import (
     ChoiceLike,
+    FunctionCallLike,
     GenAiTrace,
     TextMessageLike,
+    ToolCallMessageLike,
+    ToolMessageLike,
 )
 from giskard.llm import ChatMessage, LLMClient, ToolDef
 
@@ -253,14 +256,26 @@ async def test_completion_with_tools(provider: str):
     assert trace.interactions[0].inputs[0].role == "user"
     assert trace.interactions[0].inputs[0].content == "What's the weather in Paris?"
 
-    assert len(trace.interactions[1].inputs) == 2
+    # Second completion request: full message list (user + assistant tool call + tool result).
+    assert len(trace.interactions[1].inputs) == 3
     assert isinstance(trace.interactions[1].inputs[0], TextMessageLike)
     assert trace.interactions[1].inputs[0].role == "user"
     assert trace.interactions[1].inputs[0].content == "What's the weather in London?"
-    assert isinstance(trace.interactions[1].inputs[1], TextMessageLike)
+    assert isinstance(trace.interactions[1].inputs[1], ToolCallMessageLike)
     assert trace.interactions[1].inputs[1].role == "assistant"
-    assert isinstance(trace.interactions[1].inputs[1].content, str)
-    assert trace.interactions[1].inputs[1].content == resp.choices[0].message.content
+    assert len(trace.interactions[1].inputs[1].tool_calls) == 1
+    assert (
+        trace.interactions[1].inputs[1].tool_calls[0].id
+        == resp.choices[0].message.tool_calls[0].id
+    )
+    tc0 = trace.interactions[1].inputs[1].tool_calls[0]
+    assert isinstance(tc0, FunctionCallLike)
+    assert tc0.function.name == "get_weather"
+    assert isinstance(trace.interactions[1].inputs[2], ToolMessageLike)
+    assert trace.interactions[1].inputs[2].content == "The weather in London is sunny"
+    assert (
+        trace.interactions[1].inputs[2].id == resp.choices[0].message.tool_calls[0].id
+    )
 
     assert len(trace.interactions[1].outputs) == 1
     out1 = trace.interactions[1].outputs[0]
