@@ -6,7 +6,9 @@ import pytest
 
 _PROVIDER_PACKAGES = {
     "openai": "openai",
+    "bare": "openai",
     "google": "google.genai",
+    "gemini": "google.genai",
     "anthropic": "anthropic",
     "azure": "openai",
     "azure_ai": "openai",

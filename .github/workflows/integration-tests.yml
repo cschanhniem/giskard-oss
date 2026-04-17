@@ -110,11 +110,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12"]
-        provider: [openai, google, anthropic, azure, azure_ai]
+        # One cell per routing prefix we want to exercise end-to-end.
+        # `extras` is the giskard-llm optional-dependency group to install;
+        # aliases share an install (bare/azure_ai reuse openai/azure, gemini reuses google).
+        include:
+          - { python-version: "3.12", provider: openai,    extras: openai    }
+          - { python-version: "3.12", provider: bare,      extras: openai    }
+          - { python-version: "3.12", provider: google,    extras: google    }
+          - { python-version: "3.12", provider: gemini,    extras: google    }
+          - { python-version: "3.12", provider: anthropic, extras: anthropic }
+          - { python-version: "3.12", provider: azure,     extras: azure     }
+          - { python-version: "3.12", provider: azure_ai,  extras: azure     }
     name: llm / ${{ matrix.provider }} / ${{ matrix.python-version }}
     env:
       PROVIDER: ${{ matrix.provider }}
+      EXTRAS: ${{ matrix.extras }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -126,11 +136,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: make install
       - name: Install provider SDK
-        run: uv pip install "giskard-llm[$PROVIDER]"
+        run: uv pip install "giskard-llm[$EXTRAS]"
       - name: Run functional tests
         env:
-          OPENAI_API_KEY: ${{ matrix.provider == 'openai' && secrets.OPENAI_API_KEY || '' }}
-          GOOGLE_API_KEY: ${{ matrix.provider == 'google' && secrets.GEMINI_API_KEY || '' }}
+          OPENAI_API_KEY: ${{ (matrix.provider == 'openai' || matrix.provider == 'bare') && secrets.OPENAI_API_KEY || '' }}
+          GOOGLE_API_KEY: ${{ (matrix.provider == 'google' || matrix.provider == 'gemini') && secrets.GEMINI_API_KEY || '' }}
           ANTHROPIC_API_KEY: ${{ matrix.provider == 'anthropic' && secrets.ANTHROPIC_API_KEY || '' }}
           AZURE_API_KEY: ${{ matrix.provider == 'azure' && secrets.AZURE_API_KEY || '' }}
           AZURE_API_BASE: ${{ matrix.provider == 'azure' && secrets.AZURE_API_BASE || '' }}

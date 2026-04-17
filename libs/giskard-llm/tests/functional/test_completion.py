@@ -19,7 +19,9 @@ pytestmark = pytest.mark.functional
 
 _MODELS = {
     "openai": os.getenv("TEST_OPENAI_MODEL", "openai/gpt-4.1-nano"),
+    "bare": os.getenv("TEST_BARE_MODEL", "gpt-4.1-nano"),
     "google": os.getenv("TEST_GOOGLE_MODEL", "google/gemini-2.0-flash"),
+    "gemini": os.getenv("TEST_GEMINI_MODEL", "gemini/gemini-2.0-flash"),
     "anthropic": os.getenv(
         "TEST_ANTHROPIC_MODEL", "anthropic/claude-haiku-4-5-20251001"
     ),
@@ -27,9 +29,12 @@ _MODELS = {
     "azure_ai": os.getenv("TEST_AZURE_AI_MODEL", "azure_ai/gpt-4.1-nano"),
 }
 
+# `bare` intentionally has no entry: it exercises the no-prefix path where
+# the default openai registry entry is used without any client.configure() call.
 _CONFIGURE_PARAMS = {  # pragma: allowlist secret
     "openai": {"provider": "openai", "api_key": "os.environ/OPENAI_API_KEY"},
     "google": {"provider": "google", "api_key": "os.environ/GOOGLE_API_KEY"},
+    "gemini": {"provider": "gemini", "api_key": "os.environ/GOOGLE_API_KEY"},
     "anthropic": {"provider": "anthropic", "api_key": "os.environ/ANTHROPIC_API_KEY"},
     "azure": {
         "provider": "azure",
@@ -46,7 +51,9 @@ _CONFIGURE_PARAMS = {  # pragma: allowlist secret
 
 _PROVIDER_MARKS = {
     "openai": pytest.mark.openai,
+    "bare": pytest.mark.bare,
     "google": pytest.mark.google,
+    "gemini": pytest.mark.gemini,
     "anthropic": pytest.mark.anthropic,
     "azure": pytest.mark.azure,
     "azure_ai": pytest.mark.azure_ai,
@@ -61,6 +68,10 @@ _PROVIDER_PARAMS = [
 def _make_client(provider: str) -> tuple[LLMClient, str]:
     """Create a configured LLMClient and return (client, model_string)."""
     client = LLMClient()
+    if provider == "bare":
+        # No configure(); LLMClient falls back to the default openai registry entry
+        # and the SDK reads OPENAI_API_KEY from the environment.
+        return client, _MODELS["bare"]
     alias = f"test-{provider}"
     client.configure(alias, **_CONFIGURE_PARAMS[provider])
     model = _MODELS[provider]
@@ -346,6 +357,8 @@ async def test_configure_explicit(provider: str):
 @pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
 async def test_invalid_api_key(provider: str):
     """Bogus API key -> AuthenticationError."""
+    if provider == "bare":
+        pytest.skip("bare path does not call configure(); no api_key to override")
     from giskard.llm.errors import AuthenticationError
 
     client = LLMClient()
