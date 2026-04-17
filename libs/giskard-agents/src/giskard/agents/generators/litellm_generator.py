@@ -1,7 +1,14 @@
+"""Optional LiteLLM-backed generator.
+
+This module requires the optional ``litellm`` dependency. Install it with::
+
+    pip install giskard-agents[litellm]
+
+Importing this module without ``litellm`` installed raises ``ImportError``.
+"""
+
 from typing import Any, cast, override
 
-from litellm import Choices, ModelResponse, acompletion
-from litellm import _should_retry as litellm_should_retry
 from pydantic import Field
 
 from ..chat import Message
@@ -10,6 +17,21 @@ from ._types import GenerationParams, Response
 from .base import BaseGenerator
 from .middleware import CompletionMiddleware, RetryMiddleware, RetryPolicy
 
+try:
+    from litellm import (  # pyright: ignore[reportMissingImports]
+        Choices,
+        ModelResponse,
+        acompletion,
+    )
+    from litellm import (  # pyright: ignore[reportMissingImports]
+        _should_retry as _litellm_should_retry,
+    )
+except ImportError as exc:  # pragma: no cover - exercised via optional extra
+    raise ImportError(
+        "LiteLLMGenerator requires the optional 'litellm' dependency. "
+        "Install it with: pip install giskard-agents[litellm]"
+    ) from exc
+
 
 @CompletionMiddleware.register("litellm_retry")
 class LiteLLMRetryMiddleware(RetryMiddleware):
@@ -17,7 +39,7 @@ class LiteLLMRetryMiddleware(RetryMiddleware):
 
     @override
     def _should_retry(self, err: Exception) -> bool:
-        return litellm_should_retry(getattr(err, "status_code", 0))
+        return _litellm_should_retry(getattr(err, "status_code", 0))
 
 
 @BaseGenerator.register("litellm")

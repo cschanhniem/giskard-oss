@@ -6,31 +6,31 @@ from unittest.mock import MagicMock, patch
 import pytest
 from giskard.agents.chat import Chat, Message
 from giskard.agents.generators.base import BaseGenerator, GenerationParams, Response
-from giskard.agents.generators.litellm_generator import LiteLLMGenerator
+from giskard.agents.generators.giskard_llm_generator import GiskardLLMGenerator
 from giskard.agents.tools import Function, Tool, ToolCall, tool
 from giskard.agents.workflow import ChatWorkflow
 from giskard.core import MinIntervalRateLimiter
-from litellm import ModelResponse
+from giskard.llm import Choice, ChoiceMessage, CompletionResponse
 from pydantic import Field
 
 
 @pytest.fixture
 def mock_response():
-    return ModelResponse(
+    return CompletionResponse(
         choices=[
-            dict(
+            Choice(
                 finish_reason="stop",
-                message=dict(role="assistant", content="Mock response"),
+                message=ChoiceMessage(role="assistant", content="Mock response"),
             )
         ]
     )
 
 
-async def test_litellm_generator_completion_with_mock(
-    generator: LiteLLMGenerator, mock_response: ModelResponse
+async def test_generator_completion_with_mock(
+    generator: GiskardLLMGenerator, mock_response: CompletionResponse
 ):
     with patch(
-        "giskard.agents.generators.litellm_generator.acompletion",
+        "giskard.agents.generators.giskard_llm_generator.acompletion",
         return_value=mock_response,
     ):
         response = await generator.complete(
@@ -42,8 +42,9 @@ async def test_litellm_generator_completion_with_mock(
         assert response.finish_reason == "stop"
 
 
+@pytest.mark.google
 @pytest.mark.functional
-async def test_generator_completion(generator: LiteLLMGenerator):
+async def test_generator_completion(generator: GiskardLLMGenerator):
     response = await generator.complete(
         messages=[
             Message(
@@ -61,8 +62,9 @@ async def test_generator_completion(generator: LiteLLMGenerator):
     assert response.finish_reason == "stop"
 
 
+@pytest.mark.google
 @pytest.mark.functional
-async def test_generator_chat(generator: LiteLLMGenerator):
+async def test_generator_chat(generator: GiskardLLMGenerator):
     test_message = "Hello, world!"
     pipeline = generator.chat(test_message)
 
@@ -84,14 +86,14 @@ async def test_generator_chat(generator: LiteLLMGenerator):
     assert isinstance(chats[2], Chat)
 
 
-async def test_litellm_generator_gets_rate_limiter(mock_response: ModelResponse):
+async def test_generator_gets_rate_limiter(mock_response: CompletionResponse):
     rate_limiter = MinIntervalRateLimiter.from_rpm(60, max_concurrent=1)
-    generator = LiteLLMGenerator(
+    generator = GiskardLLMGenerator(
         model="test-model",
         rate_limiter=rate_limiter,
     )
     with patch(
-        "giskard.agents.generators.litellm_generator.acompletion",
+        "giskard.agents.generators.giskard_llm_generator.acompletion",
         return_value=mock_response,
     ):
         start_time = time.monotonic()
@@ -110,10 +112,10 @@ async def test_litellm_generator_gets_rate_limiter(mock_response: ModelResponse)
     assert elapsed_time < 3
 
 
-async def test_generator_without_rate_limiter(mock_response: ModelResponse):
-    generator = LiteLLMGenerator(model="test-model")
+async def test_generator_without_rate_limiter(mock_response: CompletionResponse):
+    generator = GiskardLLMGenerator(model="test-model")
     with patch(
-        "giskard.agents.generators.litellm_generator.acompletion",
+        "giskard.agents.generators.giskard_llm_generator.acompletion",
         return_value=mock_response,
     ):
         start_time = time.monotonic()
@@ -128,7 +130,7 @@ async def test_generator_without_rate_limiter(mock_response: ModelResponse):
 
 
 def test_generator_with_params():
-    generator = LiteLLMGenerator(model="test-model")
+    generator = GiskardLLMGenerator(model="test-model")
     generator = generator.with_params(temperature=0.5)
     assert generator.params.temperature == 0.5
 
@@ -145,7 +147,7 @@ def test_generator_with_params():
 def test_generator_with_params_and_rate_limiter():
     """with_params uses a shallow copy: rate limiter is shared, not deep-copied."""
     rate_limiter = MinIntervalRateLimiter.from_rpm(100, max_concurrent=5)
-    generator = LiteLLMGenerator(
+    generator = GiskardLLMGenerator(
         model="test-model",
         rate_limiter=rate_limiter,
     )
@@ -158,7 +160,7 @@ def test_generator_with_params_and_rate_limiter():
         generator_with_params = generator.with_params(temperature=0.5, max_tokens=100)
         mock_deepcopy.assert_not_called()
 
-    assert isinstance(generator_with_params, LiteLLMGenerator)
+    assert isinstance(generator_with_params, GiskardLLMGenerator)
     assert generator_with_params.params.temperature == 0.5
     assert generator_with_params.params.max_tokens == 100
 
@@ -168,16 +170,16 @@ def test_generator_with_params_and_rate_limiter():
     assert generator.params.max_tokens is None
 
 
-async def test_generator_with_params_overwrite(mock_response: ModelResponse):
+async def test_generator_with_params_overwrite(mock_response: CompletionResponse):
     # ARRANGE: Create a generator with base parameters.
-    generator = LiteLLMGenerator(model="test-model").with_params(
+    generator = GiskardLLMGenerator(model="test-model").with_params(
         temperature=0.5,  # This should be preserved.
         max_tokens=100,  # This should be overwritten.
         timeout=30,  # This should be overwritten.
     )
 
     with patch(
-        "giskard.agents.generators.litellm_generator.acompletion",
+        "giskard.agents.generators.giskard_llm_generator.acompletion",
         return_value=mock_response,
     ) as mock_acompletion:
         # ACT: Call complete() with overriding parameters.
