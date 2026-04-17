@@ -1,7 +1,5 @@
 """Aggregate, non-identifying properties for PostHog (no names, messages, or content)."""
 
-from __future__ import annotations
-
 from collections import Counter
 from typing import Any
 
