@@ -1,28 +1,94 @@
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, TypeAdapter
+from rich.console import Console, ConsoleOptions, RenderResult
+from rich.panel import Panel
+from rich.rule import Rule
 
 from .interaction import Interaction
 from .trace import Trace
+
+ROLE_COLOR_MAPPING = {
+    "system": "bold green",
+    "user": "bold blue",
+    "assistant": "bold yellow",
+    "tool": "bold purple",
+}
+
+_DEFAULT_BORDER_STYLE = "bold gray"
 
 
 class TextMessageLike(BaseModel, frozen=True, extra="allow"):
     role: str
     content: str
 
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield Rule(
+            self.role, style=ROLE_COLOR_MAPPING.get(self.role, _DEFAULT_BORDER_STYLE)
+        )
+        yield self.content
+
+
+class FunctionLike(BaseModel, frozen=True, extra="allow"):
+    name: str
+    arguments: str | dict[str, Any] | None = None
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield f"{self.name}(${repr(self.arguments)})"
+
 
 class ToolCallLike(BaseModel, frozen=True, extra="allow"):
     id: str
     type: str
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield "[dim]No details available[/dim]"
+
+
+class FunctionCallLike(ToolCallLike, frozen=True, extra="allow"):
+    type: Literal["function_call"] = "function_call"
+    function: FunctionLike
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield from self.function.__rich_console__(console, options)
 
 
 class ToolCallMessageLike(BaseModel, frozen=True, extra="allow"):
     role: str
     tool_calls: list[ToolCallLike]
 
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield Rule("Tool calls", style=_DEFAULT_BORDER_STYLE)
+        for tool_call in self.tool_calls:
+            yield Panel(
+                tool_call,
+                title=f"{tool_call.type.capitalize()} call: {tool_call.id}",
+                border_style=_DEFAULT_BORDER_STYLE,
+            )
+
 
 class ToolMessageLike(TextMessageLike, frozen=True, extra="allow"):
+    role: str = "tool"
     id: str
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield Rule(
+            f"{self.role.capitalize()}: {self.id}",
+            style=ROLE_COLOR_MAPPING.get(self.role, _DEFAULT_BORDER_STYLE),
+        )
+        yield self.content
 
 
 AssistantMessageLike = ToolCallMessageLike | TextMessageLike
@@ -33,6 +99,18 @@ class ChoiceLike(BaseModel, frozen=True, extra="allow"):
     message: AssistantMessageLike
     finish_reason: str | None
     index: int | None
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        title = "Choice"
+        if self.index is not None:
+            title += f" #{self.index}"
+        if self.finish_reason is not None:
+            title += f" ({self.finish_reason})"
+
+        yield Rule(title, characters="=")
+        yield from self.message.__rich_console__(console, options)
 
 
 _AssistantMessageLikeTypeAdapter = TypeAdapter(AssistantMessageLike)
@@ -126,3 +204,28 @@ class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
             )
 
         return cls(interactions=interactions)
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        if not self.interactions:
+            yield "[dim]No interactions found[/dim]"
+            return
+
+        for idx, interaction in enumerate(self.interactions):
+            assistant_messages = [
+                assistant_message
+                for assistant_message in interaction.inputs
+                if assistant_message.role == "assistant"
+            ]
+            skip_count = min(len(assistant_messages), idx)
+            for inputs in interaction.inputs:
+                if skip_count > 0:
+                    if inputs.role == "assistant":
+                        skip_count -= 1
+                    continue
+
+                yield from inputs.__rich_console__(console, options)
+
+            for outputs in interaction.outputs:
+                yield from outputs.__rich_console__(console, options)
