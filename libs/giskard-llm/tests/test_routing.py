@@ -271,3 +271,112 @@ def test_instrumentor_for_unknown_provider():
 
     with pytest.raises(ValueError, match="Unknown provider kind"):
         LLMClient.instrumentor_for("not-a-provider")
+
+
+# -- instrumentor_for_provider: happy paths & missing-extra paths -------------
+#
+# These tests avoid requiring the real OTEL instrumentation packages to be
+# installed by injecting fake modules into ``sys.modules``. They pin:
+#   - that each provider kind resolves to the expected (module, class),
+#   - that per-provider constructor kwargs are forwarded (Anthropic),
+#   - that a missing instrumentation package re-raises ``ImportError`` with
+#     the extra hint.
+
+_EXPECTED_INSTRUMENTORS = [
+    pytest.param(
+        "openai",
+        "opentelemetry.instrumentation.openai_v2",
+        "OpenAIInstrumentor",
+        "openai-otel",
+        {},
+        id="openai",
+    ),
+    pytest.param(
+        "azure",
+        "opentelemetry.instrumentation.openai_v2",
+        "OpenAIInstrumentor",
+        "azure-otel",
+        {},
+        id="azure",
+    ),
+    pytest.param(
+        "azure_ai",
+        "opentelemetry.instrumentation.openai_v2",
+        "OpenAIInstrumentor",
+        "azure-otel",
+        {},
+        id="azure_ai",
+    ),
+    pytest.param(
+        "google",
+        "opentelemetry.instrumentation.google_genai",
+        "GoogleGenAiSdkInstrumentor",
+        "google-otel",
+        {},
+        id="google",
+    ),
+    pytest.param(
+        "anthropic",
+        "opentelemetry.instrumentation.anthropic",
+        "AnthropicInstrumentor",
+        "anthropic-otel",
+        {"use_legacy_attributes": False},
+        id="anthropic",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("provider", "module_path", "class_name", "extra", "expected_kwargs"),
+    _EXPECTED_INSTRUMENTORS,
+)
+def test_instrumentor_for_provider_returns_expected_class(
+    provider: str,
+    module_path: str,
+    class_name: str,
+    extra: str,
+    expected_kwargs: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Each provider resolves to the expected instrumentor class with expected kwargs."""
+    import sys
+    import types
+
+    from giskard.llm import instrumentor_for_provider
+
+    fake_instance = MagicMock(name=f"{class_name}Instance")
+    fake_cls = MagicMock(name=class_name, return_value=fake_instance)
+    fake_module = types.ModuleType(module_path)
+    setattr(fake_module, class_name, fake_cls)
+    monkeypatch.setitem(sys.modules, module_path, fake_module)
+
+    result = instrumentor_for_provider(provider)
+
+    assert result is fake_instance
+    fake_cls.assert_called_once_with(**expected_kwargs)
+    _ = extra  # included in the parametrize row for symmetry with the ImportError test
+
+
+@pytest.mark.parametrize(
+    ("provider", "module_path", "class_name", "extra", "expected_kwargs"),
+    _EXPECTED_INSTRUMENTORS,
+)
+def test_instrumentor_for_provider_missing_extra_reraises_importerror(
+    provider: str,
+    module_path: str,
+    class_name: str,
+    extra: str,
+    expected_kwargs: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Missing OTEL instrumentation package re-raises ImportError with the extra hint."""
+    import sys
+
+    from giskard.llm import instrumentor_for_provider
+
+    monkeypatch.setitem(sys.modules, module_path, None)
+
+    with pytest.raises(ImportError, match=rf"giskard-llm\[{extra}\]"):
+        instrumentor_for_provider(provider)
+
+    _ = class_name, expected_kwargs  # unused here; kept for row symmetry
