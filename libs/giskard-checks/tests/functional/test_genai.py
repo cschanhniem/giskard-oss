@@ -20,7 +20,7 @@ from giskard.checks.core.interaction.gen_ai import (
     GenAiTrace,
     TextMessageLike,
 )
-from giskard.llm import LLMClient
+from giskard.llm import ChatMessage, LLMClient, ToolDef
 
 pytestmark = pytest.mark.functional
 
@@ -191,3 +191,80 @@ async def test_user_only(provider: str):
     assert out0.message.role == "assistant"
     assert isinstance(out0.message, TextMessageLike)
     assert out0.message.content == resp.choices[0].message.content
+
+
+WEATHER_TOOL: ToolDef = {
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Get the weather for a given city",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string"},
+            },
+            "required": ["city"],
+        },
+    },
+}
+
+
+@pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
+async def test_completion_with_tools(provider: str):
+    """Completion with tools -> non-empty assistant response."""
+    with _otel_in_memory_log_exporter(provider) as log_exporter:
+        client, model = _make_client(provider)
+        resp = await client.acompletion(
+            model,
+            [{"role": "user", "content": "What's the weather in Paris?"}],
+            tools=[WEATHER_TOOL],
+        )
+
+        assert len(resp.choices) > 0
+        assert resp.choices[0].message.role == "assistant"
+        assert resp.choices[0].message.tool_calls is not None
+        assert len(resp.choices[0].message.tool_calls) == 1
+        assert resp.choices[0].message.tool_calls[0].type == "function"
+        assert resp.choices[0].message.tool_calls[0].function.name == "get_weather"
+
+        resp_two = await client.acompletion(
+            model,
+            [
+                {"role": "user", "content": "What's the weather in London?"},
+                ChatMessage(**resp.choices[0].message.model_dump()),
+                {
+                    "role": "tool",
+                    "content": "The weather in London is sunny",
+                    "tool_call_id": resp.choices[0].message.tool_calls[0].id,
+                },
+            ],
+            tools=[WEATHER_TOOL],
+        )
+
+        assert len(resp_two.choices) > 0
+        assert resp_two.choices[0].message.role == "assistant"
+        assert isinstance(resp_two.choices[0].message.content, str)
+
+    events = _gen_ai_events_from_log_exporter(log_exporter)
+    trace = GenAiTrace.from_otel_logs(events)
+    assert len(trace.interactions) == 2
+    assert len(trace.interactions[0].inputs) == 1
+    assert isinstance(trace.interactions[0].inputs[0], TextMessageLike)
+    assert trace.interactions[0].inputs[0].role == "user"
+    assert trace.interactions[0].inputs[0].content == "What's the weather in Paris?"
+
+    assert len(trace.interactions[1].inputs) == 2
+    assert isinstance(trace.interactions[1].inputs[0], TextMessageLike)
+    assert trace.interactions[1].inputs[0].role == "user"
+    assert trace.interactions[1].inputs[0].content == "What's the weather in London?"
+    assert isinstance(trace.interactions[1].inputs[1], TextMessageLike)
+    assert trace.interactions[1].inputs[1].role == "assistant"
+    assert isinstance(trace.interactions[1].inputs[1].content, str)
+    assert trace.interactions[1].inputs[1].content == resp.choices[0].message.content
+
+    assert len(trace.interactions[1].outputs) == 1
+    out1 = trace.interactions[1].outputs[0]
+    assert isinstance(out1, ChoiceLike)
+    assert out1.message.role == "assistant"
+    assert isinstance(out1.message, TextMessageLike)
+    assert out1.message.content == resp_two.choices[0].message.content
