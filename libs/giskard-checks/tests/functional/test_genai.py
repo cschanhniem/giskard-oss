@@ -82,40 +82,6 @@ _PROVIDER_PARAMS = [
 ]
 
 
-def _instrumentor_for(provider: str) -> Any:
-    """Load the OTEL instrumentor for ``provider`` (lazy; one SDK per CI matrix cell)."""
-    if provider in ("openai", "azure", "azure_ai"):
-        try:
-            from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
-
-            return OpenAIInstrumentor()
-        except ImportError as exc:
-            pytest.skip(
-                f"Install giskard-llm[{provider},{provider}-otel] (OpenTelemetry OpenAI instrumentation). {exc}"
-            )
-    if provider == "google":
-        try:
-            from opentelemetry.instrumentation.google_genai import (
-                GoogleGenAiSdkInstrumentor,
-            )
-
-            return GoogleGenAiSdkInstrumentor()
-        except ImportError as exc:
-            pytest.skip(
-                f"Install giskard-llm[google,google-otel] (OpenTelemetry Google GenAI instrumentation). {exc}"
-            )
-    if provider == "anthropic":
-        try:
-            from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
-
-            return AnthropicInstrumentor(use_legacy_attributes=False)
-        except ImportError as exc:
-            pytest.skip(
-                f"Install giskard-llm[anthropic,anthropic-otel] (OpenTelemetry Anthropic instrumentation). {exc}"
-            )
-    raise AssertionError(f"unknown provider: {provider}")
-
-
 @contextmanager
 def _otel_in_memory_log_exporter(provider: str) -> Iterator[Any]:
     """Capture gen_ai log events (Anthropic instrumentation uses the Logs API when not legacy)."""
@@ -131,7 +97,10 @@ def _otel_in_memory_log_exporter(provider: str) -> Iterator[Any]:
             f"Install opentelemetry-sdk (e.g. giskard-llm[provider,provider-otel] extras). {exc}"
         )
 
-    instrumentor = _instrumentor_for(provider)
+    try:
+        instrumentor = LLMClient.instrumentor_for(provider)
+    except ImportError as exc:
+        pytest.skip(str(exc))
     log_exporter = InMemoryLogRecordExporter()
     logger_provider = LoggerProvider()
     logger_provider.add_log_record_processor(SimpleLogRecordProcessor(log_exporter))

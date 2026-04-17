@@ -3,9 +3,10 @@
 import importlib
 import os
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .errors import UnsupportedOperationError
+from .otel import instrumentor_for_provider
 from .providers.base import CompletionProvider, EmbeddingProvider, ResponseProvider
 from .types import (
     ChatMessage,
@@ -14,6 +15,9 @@ from .types import (
     ResponseResult,
     ToolDef,
 )
+
+if TYPE_CHECKING:
+    from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
 
 # Plain assignment (not `type` statement) so isinstance checks work at runtime.
 Provider = CompletionProvider | EmbeddingProvider | ResponseProvider
@@ -102,6 +106,15 @@ class LLMClient:
         """Bulk-register providers from a dict (e.g. loaded from YAML)."""
         for name, kwargs in config.items():
             self.configure(name, **kwargs)
+
+    @staticmethod
+    def instrumentor_for(provider: str) -> "BaseInstrumentor":
+        """Load the OpenTelemetry GenAI instrumentor for a provider kind.
+
+        Does not use client configuration; ``provider`` is the logical SDK kind
+        (same strings as in model prefixes: ``openai``, ``google``, etc.).
+        """
+        return instrumentor_for_provider(provider)
 
     def _get_provider(self, name: str) -> Provider:
         if name in self._providers:

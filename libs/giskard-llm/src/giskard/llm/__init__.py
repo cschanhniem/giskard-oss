@@ -10,6 +10,7 @@ from .errors import (
     ServerError,
     UnsupportedOperationError,
 )
+from .otel import instrumentor_for_provider
 from .providers.base import CompletionProvider, EmbeddingProvider, ResponseProvider
 from .retry import should_retry
 from .routing import LLMClient, acompletion, aembedding, aresponse, configure, reset
@@ -34,7 +35,8 @@ from .types import (
 )
 
 __all__ = [
-    # Functions
+    # Functions / OTEL helpers
+    "instrumentor_for_provider",
     "acompletion",
     "aembedding",
     "aresponse",

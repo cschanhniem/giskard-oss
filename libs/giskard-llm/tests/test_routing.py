@@ -260,3 +260,14 @@ async def test_client_aresponse_unsupported_raises(mock_create):
     client = LLMClient()
     with pytest.raises(UnsupportedOperationError, match="does not support"):
         await client.aresponse("openai/gpt-4o", "Hello")
+
+
+def test_instrumentor_for_unknown_provider():
+    """OTEL helper rejects unknown provider kinds without importing instrumentation."""
+    from giskard.llm import instrumentor_for_provider
+
+    with pytest.raises(ValueError, match="Unknown provider kind"):
+        instrumentor_for_provider("not-a-provider")
+
+    with pytest.raises(ValueError, match="Unknown provider kind"):
+        LLMClient.instrumentor_for("not-a-provider")
