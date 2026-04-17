@@ -1,6 +1,10 @@
 """Unit tests for ``GenAiTrace.from_otel_logs``."""
 
-from giskard.checks.core.interaction.gen_ai import GenAiTrace, TextMessageLike
+from giskard.checks.core.interaction.gen_ai import (
+    AssistantMessageLike,
+    GenAiTrace,
+    TextMessageLike,
+)
 
 
 def test_from_otel_logs_multiple_choices_same_request():
@@ -34,9 +38,9 @@ def test_from_otel_logs_multiple_choices_same_request():
         role="user", content="Hello"
     )
     assert len(trace.interactions[0].outputs) == 2
-    assert isinstance(trace.interactions[0].outputs[0].message, TextMessageLike)
+    assert isinstance(trace.interactions[0].outputs[0].message, AssistantMessageLike)
     assert trace.interactions[0].outputs[0].message.content == "A"
-    assert isinstance(trace.interactions[0].outputs[1].message, TextMessageLike)
+    assert isinstance(trace.interactions[0].outputs[1].message, AssistantMessageLike)
     assert trace.interactions[0].outputs[1].message.content == "B"
 
 
@@ -72,12 +76,12 @@ def test_from_otel_logs_two_requests():
     assert len(trace.interactions) == 2
     assert isinstance(trace.interactions[0].inputs[0], TextMessageLike)
     assert trace.interactions[0].inputs[0].content == "First"
-    assert isinstance(trace.interactions[0].outputs[0].message, TextMessageLike)
+    assert isinstance(trace.interactions[0].outputs[0].message, AssistantMessageLike)
     assert len(trace.interactions[0].outputs) == 1
     assert trace.interactions[0].outputs[0].message.content == "Reply1"
     assert isinstance(trace.interactions[1].inputs[0], TextMessageLike)
     assert trace.interactions[1].inputs[0].content == "Second"
-    assert isinstance(trace.interactions[1].outputs[0].message, TextMessageLike)
+    assert isinstance(trace.interactions[1].outputs[0].message, AssistantMessageLike)
     assert trace.interactions[1].outputs[0].message.content == "Reply2"
 
 

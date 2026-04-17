@@ -1,6 +1,6 @@
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, model_validator
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.panel import Panel
 from rich.rule import Rule
@@ -61,20 +61,44 @@ class FunctionCallLike(ToolCallLike, frozen=True, extra="allow"):
         yield from self.function.__rich_console__(console, options)
 
 
-class ToolCallMessageLike(BaseModel, frozen=True, extra="allow"):
+class AssistantMessageLike(BaseModel, frozen=True, extra="allow"):
+    """Assistant turn: optional text ``content`` and/or optional ``tool_calls``."""
+
     role: str
-    tool_calls: list[ToolCallLike]
+    content: str | None = None
+    tool_calls: list[FunctionCallLike | ToolCallLike] | None = None
+
+    @model_validator(mode="after")
+    def _has_text_or_tool_calls(self) -> Self:
+        has_text = self.content is not None and self.content != ""
+        has_tools = self.tool_calls is not None and len(self.tool_calls) > 0
+        if not has_text and not has_tools:
+            raise ValueError(
+                "Assistant message must include non-empty content and/or at least one tool call"
+            )
+        return self
 
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield Rule("Tool calls", style=_DEFAULT_BORDER_STYLE)
-        for tool_call in self.tool_calls:
-            yield Panel(
-                tool_call,
-                title=f"{tool_call.type.capitalize()} call: {tool_call.id}",
-                border_style=_DEFAULT_BORDER_STYLE,
+        if self.content:
+            yield Rule(
+                self.role,
+                style=ROLE_COLOR_MAPPING.get(self.role, _DEFAULT_BORDER_STYLE),
             )
+            yield self.content
+        if self.tool_calls:
+            yield Rule("Tool calls", style=_DEFAULT_BORDER_STYLE)
+            for tool_call in self.tool_calls:
+                yield Panel(
+                    tool_call,
+                    title=f"{tool_call.type.capitalize()} call: {tool_call.id}",
+                    border_style=_DEFAULT_BORDER_STYLE,
+                )
+
+
+# Backward-compatible name for assistant messages that include tool calls.
+ToolCallMessageLike = AssistantMessageLike
 
 
 class ToolMessageLike(TextMessageLike, frozen=True, extra="allow"):
@@ -91,8 +115,7 @@ class ToolMessageLike(TextMessageLike, frozen=True, extra="allow"):
         yield self.content
 
 
-AssistantMessageLike = ToolCallMessageLike | TextMessageLike
-MessageLike = ToolCallMessageLike | ToolMessageLike | TextMessageLike
+MessageLike = AssistantMessageLike | ToolMessageLike | TextMessageLike
 
 
 class ChoiceLike(BaseModel, frozen=True, extra="allow"):
@@ -111,9 +134,6 @@ class ChoiceLike(BaseModel, frozen=True, extra="allow"):
 
         yield Rule(title, characters="=")
         yield from self.message.__rich_console__(console, options)
-
-
-_AssistantMessageLikeTypeAdapter = TypeAdapter(AssistantMessageLike)
 
 
 def _start_index_after_last_assistant(messages: list[MessageLike]) -> int:
@@ -226,7 +246,7 @@ class GenAiTrace(Trace[list[MessageLike], list[ChoiceLike]], frozen=True):
             elif event_name == "gen_ai.assistant.message":
                 _flush_if_has_choices()
                 inputs.append(
-                    _AssistantMessageLikeTypeAdapter.validate_python(
+                    AssistantMessageLike.model_validate(
                         _body_with_role("assistant", body)
                     )
                 )
