@@ -417,3 +417,12 @@ def tool(
     return ToolMessage(
         role="tool", content=list(content), tool_call_id=tool_call_id, name=name
     )
+
+
+def fn_tool_definition(
+    name: str, description: str, parameters: dict[str, Any]
+) -> FunctionToolDefinition:
+    return FunctionToolDefinition(
+        type="function",
+        function=FunctionDef(name=name, description=description, parameters=parameters),
+    )

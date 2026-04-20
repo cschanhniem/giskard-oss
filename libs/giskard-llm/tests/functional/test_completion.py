@@ -10,7 +10,16 @@ import os
 import pytest
 from giskard.llm import LLMClient
 from giskard.llm.errors import BadRequestError
-from giskard.llm.types import FunctionCall, FunctionToolDefinition
+from giskard.llm.types import (
+    Function,
+    FunctionCall,
+    FunctionToolDefinition,
+    assistant,
+    fn_tool_definition,
+    system,
+    tool,
+    user,
+)
 from pydantic import BaseModel
 
 pytestmark = pytest.mark.functional
@@ -86,7 +95,7 @@ def _make_client(provider: str) -> tuple[LLMClient, str]:
 async def test_user_only(provider: str):
     """Single user message -> non-empty assistant response."""
     client, model = _make_client(provider)
-    resp = await client.acompletion(model, [{"role": "user", "content": "Say hello"}])
+    resp = await client.acompletion(model, [user("Say hello")])
     assert len(resp.choices) > 0
     assert resp.choices[0].message.role == "assistant"
     assert resp.choices[0].message.text
@@ -98,7 +107,7 @@ async def test_system_only_raises(provider: str):
     """System-only message -> BadRequestError before API call."""
     client, model = _make_client(provider)
     with pytest.raises(BadRequestError, match="non-system"):
-        await client.acompletion(model, [{"role": "system", "content": "Be helpful"}])
+        await client.acompletion(model, [system("Be helpful")])
 
 
 @pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
@@ -147,22 +156,14 @@ async def test_empty_messages_raises(provider: str):
 # -- Tool call scenarios ------------------------------------------------------
 
 
-ADD_TOOL: FunctionToolDefinition = FunctionToolDefinition.model_validate(
-    {
-        "type": "function",
-        "function": {
-            "name": "add",
-            "description": "Add two numbers",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "a": {"type": "integer"},
-                    "b": {"type": "integer"},
-                },
-                "required": ["a", "b"],
-            },
-        },
-    }
+ADD_TOOL: FunctionToolDefinition = fn_tool_definition(
+    name="add",
+    description="Add two numbers",
+    parameters={
+        "type": "object",
+        "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+        "required": ["a", "b"],
+    },
 )
 
 
@@ -192,7 +193,7 @@ async def test_tool_result_loop(provider: str):
 
     resp1 = await client.acompletion(
         model,
-        [{"role": "user", "content": "What is 2+2? Use the add tool."}],
+        [user("What is 2+2? Use the add tool.")],
         tools=[ADD_TOOL],
     )
     assert resp1.choices[0].message.tool_calls is not None
@@ -202,13 +203,9 @@ async def test_tool_result_loop(provider: str):
     resp2 = await client.acompletion(
         model,
         [
-            {"role": "user", "content": "What is 2+2? Use the add tool."},
-            {
-                "role": "assistant",
-                "content": resp1.choices[0].message.text,
-                "tool_calls": [tc.model_dump()],
-            },
-            {"role": "tool", "tool_call_id": tc.id, "content": "4"},
+            user("What is 2+2? Use the add tool."),
+            resp1.choices[0].message,
+            tool("4", tool_call_id=tc.id),
         ],
         tools=[ADD_TOOL],
     )
@@ -226,41 +223,30 @@ async def test_tool_result_loop_hardcoded(provider: str):
     """
     client, model = _make_client(provider)
     messages = [
-        {"role": "user", "content": "What is 2+2? Use the add tool."},
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": "call_0",
-                    "type": "function",
-                    "function": {"name": "add", "arguments": '{"a": 2, "b": 2}'},
-                },
-            ],
-        },
-        {"role": "tool", "tool_call_id": "call_0", "content": "4"},
+        user("What is 2+2? Use the add tool."),
+        assistant(
+            tool_calls=[
+                FunctionCall(
+                    id="call_0",
+                    function=Function(name="add", arguments='{"a": 2, "b": 2}'),
+                )
+            ]
+        ),
+        tool("4", tool_call_id="call_0"),
     ]
     resp = await client.acompletion(model, messages, tools=[ADD_TOOL])
     assert resp.choices[0].finish_reason == "stop"
     assert resp.choices[0].message.text
 
 
-MULTIPLY_TOOL: FunctionToolDefinition = FunctionToolDefinition.model_validate(
-    {
-        "type": "function",
-        "function": {
-            "name": "multiply",
-            "description": "Multiply two numbers",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "a": {"type": "integer"},
-                    "b": {"type": "integer"},
-                },
-                "required": ["a", "b"],
-            },
-        },
-    }
+MULTIPLY_TOOL: FunctionToolDefinition = fn_tool_definition(
+    name="multiply",
+    description="Multiply two numbers",
+    parameters={
+        "type": "object",
+        "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+        "required": ["a", "b"],
+    },
 )
 
 
@@ -273,31 +259,21 @@ async def test_tool_result_loop_parallel(provider: str):
     """
     client, model = _make_client(provider)
     messages = [
-        {
-            "role": "user",
-            "content": "What is 2+2 and 3*4? Use the add and multiply tools.",
-        },
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": "call_0",
-                    "type": "function",
-                    "function": {"name": "add", "arguments": '{"a": 2, "b": 2}'},
-                },
-                {
-                    "id": "call_1",
-                    "type": "function",
-                    "function": {
-                        "name": "multiply",
-                        "arguments": '{"a": 3, "b": 4}',
-                    },
-                },
-            ],
-        },
-        {"role": "tool", "tool_call_id": "call_0", "content": "4"},
-        {"role": "tool", "tool_call_id": "call_1", "content": "12"},
+        user("What is 2+2 and 3*4? Use the add and multiply tools."),
+        assistant(
+            tool_calls=[
+                FunctionCall(
+                    id="call_0",
+                    function=Function(name="add", arguments='{"a": 2, "b": 2}'),
+                ),
+                FunctionCall(
+                    id="call_1",
+                    function=Function(name="multiply", arguments='{"a": 3, "b": 4}'),
+                ),
+            ]
+        ),
+        tool("4", tool_call_id="call_0"),
+        tool("12", tool_call_id="call_1"),
     ]
     resp = await client.acompletion(model, messages, tools=[ADD_TOOL, MULTIPLY_TOOL])
     assert resp.choices[0].finish_reason == "stop"
@@ -311,9 +287,7 @@ async def test_tool_result_loop_parallel(provider: str):
 async def test_usage_populated(provider: str):
     """Completion response includes usage with non-negative token counts."""
     client, model = _make_client(provider)
-    resp = await client.acompletion(
-        model, [{"role": "user", "content": "Say one word."}]
-    )
+    resp = await client.acompletion(model, [user("Say one word.")])
     assert resp.usage is not None
     assert resp.usage.prompt_tokens >= 0
     assert resp.usage.completion_tokens >= 0
@@ -334,7 +308,7 @@ async def test_response_format(provider: str):
     client, model = _make_client(provider)
     resp = await client.acompletion(
         model,
-        [{"role": "user", "content": "Give me a color. Respond with name and hex."}],
+        [user("Give me a color. Respond with name and hex.")],
         response_format=ColorModel,
     )
     choice = resp.choices[0]
@@ -353,7 +327,7 @@ async def test_response_format(provider: str):
 async def test_configure_explicit(provider: str):
     """Explicit configure() -> completion succeeds."""
     client, model = _make_client(provider)
-    resp = await client.acompletion(model, [{"role": "user", "content": "Say hi"}])
+    resp = await client.acompletion(model, [user("Say hi")])
     assert resp.choices[0].message.text
 
 
@@ -375,6 +349,4 @@ async def test_invalid_api_key(provider: str):
 
     _, model_name = _MODELS[provider].split("/", 1)
     with pytest.raises(AuthenticationError):
-        await client.acompletion(
-            f"{alias}/{model_name}", [{"role": "user", "content": "Hi"}]
-        )
+        await client.acompletion(f"{alias}/{model_name}", [user("Hi")])
