@@ -321,9 +321,6 @@ class ResponseResult(_BaseModel):
 
     @property
     def output_text(self) -> str | None:
-        if self.outputs is None:
-            return None
-
         if isinstance(self.outputs, str):
             return self.outputs
 
