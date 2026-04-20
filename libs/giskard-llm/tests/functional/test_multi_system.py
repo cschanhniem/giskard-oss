@@ -1,19 +1,18 @@
 """Functional tests for multi-system message handling per provider."""
 
 import os
-from typing import Any
 
 import pytest
-from giskard.llm import LLMClient, Message
+from giskard.llm import LLMClient, Message, system, user
 from giskard.llm.errors import BadRequestError
 
 pytestmark = pytest.mark.functional
 
 
-_MULTI_SYSTEM_MESSAGES: list[Message | dict[str, Any]] = [
-    {"role": "system", "content": "Always include the word PINEAPPLE."},
-    {"role": "system", "content": "Always include the word MANGO."},
-    {"role": "user", "content": "Tell me something."},
+_MULTI_SYSTEM_MESSAGES: list[Message] = [
+    system("Always include the word PINEAPPLE."),
+    system("Always include the word MANGO."),
+    user("Tell me something."),
 ]
 
 

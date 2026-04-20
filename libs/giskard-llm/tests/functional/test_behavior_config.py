@@ -1,10 +1,9 @@
 """Functional tests for behavior configuration via LLMClient.configure()."""
 
 import os
-from typing import Any
 
 import pytest
-from giskard.llm import LLMClient, Message
+from giskard.llm import LLMClient, Message, system, user
 from giskard.llm.errors import BadRequestError
 
 pytestmark = [pytest.mark.functional, pytest.mark.anthropic]
@@ -21,12 +20,12 @@ async def test_anthropic_strict_multi_system_raises():
         api_key="os.environ/ANTHROPIC_API_KEY",  # pragma: allowlist secret
     )
     with pytest.raises(BadRequestError, match="multiple system"):
-        await client.acompletion(
+        _ = await client.acompletion(
             f"anthropic-strict/{_MODEL}",
             [
-                {"role": "system", "content": "You are helpful."},
-                {"role": "system", "content": "You are concise."},
-                {"role": "user", "content": "Hi"},
+                system("You are helpful."),
+                system("You are concise."),
+                user("Hi"),
             ],
         )
 
@@ -43,9 +42,9 @@ async def test_anthropic_relaxed_multi_system_merges():
     resp = await client.acompletion(
         f"anthropic-relaxed/{_MODEL}",
         [
-            {"role": "system", "content": "Always include the word PINEAPPLE."},
-            {"role": "system", "content": "Always include the word MANGO."},
-            {"role": "user", "content": "Tell me something."},
+            system("Always include the word PINEAPPLE."),
+            system("Always include the word MANGO."),
+            user("Tell me something."),
         ],
     )
     content = resp.choices[0].message.text or ""
@@ -67,10 +66,10 @@ async def test_both_aliases_coexist():
         merge_system=True,
     )
 
-    messages: list[Message | dict[str, Any]] = [
-        {"role": "system", "content": "A"},
-        {"role": "system", "content": "B"},
-        {"role": "user", "content": "Hi"},
+    messages: list[Message] = [
+        system("A"),
+        system("B"),
+        user("Hi"),
     ]
 
     with pytest.raises(BadRequestError):
