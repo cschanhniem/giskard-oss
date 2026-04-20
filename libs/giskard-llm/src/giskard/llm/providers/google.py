@@ -73,7 +73,6 @@ from ..types import (
     EmbeddingResponse,
     Function,
     FunctionCall,
-    FunctionTool,
     FunctionToolDefinition,
     Message,
     OutputContent,
@@ -84,6 +83,7 @@ from ..types import (
     SystemMessage,
     TextContent,
     ToolCall,
+    ToolInput,
     ToolMessage,
     Usage,
     flatten_text_content,
@@ -209,7 +209,7 @@ class GoogleProvider:
         model: str,
         messages: Sequence[Message | dict[str, Any]],
         *,
-        tools: Sequence[FunctionToolDefinition | dict[str, Any]] | None = None,
+        tools: Sequence[ToolInput] | None = None,
         **params: Any,
     ) -> ChatCompletion:
         types = _import_genai_types()
@@ -484,7 +484,7 @@ class GoogleProvider:
         *,
         instructions: str | None = None,
         previous_id: str | None = None,
-        tools: Sequence[FunctionTool | dict[str, Any]] | None = None,
+        tools: Sequence[ToolInput] | None = None,
         **params: Any,
     ) -> ResponseResult:
         unknown = set(params) - KNOWN_RESPONSE_PARAMS

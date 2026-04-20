@@ -71,6 +71,7 @@ from ..types import (
     Message,
     SystemMessage,
     ToolCall,
+    ToolInput,
     ToolMessage,
     Usage,
     validate_messages,
@@ -167,7 +168,7 @@ class AnthropicProvider:
         model: str,
         messages: Sequence[Message | dict[str, Any]],
         *,
-        tools: Sequence[FunctionToolDefinition | dict[str, Any]] | None = None,
+        tools: Sequence[ToolInput] | None = None,
         **params: Any,
     ) -> ChatCompletion:
         anthropic = _import_anthropic()

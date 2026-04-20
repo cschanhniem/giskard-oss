@@ -6,8 +6,10 @@ from giskard.llm.types import (
     EmbeddingResponse,
     Function,
     FunctionCall,
+    FunctionDef,
     FunctionMessage,
     FunctionTool,
+    FunctionToolDefinition,
     InputMessage,
     Message,
     RefusalContent,
@@ -15,8 +17,10 @@ from giskard.llm.types import (
     TextContent,
     ToolMessage,
     flatten_text_content,
+    fn_tool_definition,
     serialize_messages,
     validate_response_tools,
+    validate_tools,
 )
 from pydantic import TypeAdapter
 
@@ -111,6 +115,43 @@ def test_validate_response_tools_accepts_dicts():
             "description": "Look up a record.",
             "parameters": {"type": "object"},
         }
+    )
+    assert tools == [
+        FunctionTool(
+            type="function",
+            name="lookup",
+            description="Look up a record.",
+            parameters={"type": "object"},
+        )
+    ]
+
+
+def test_validate_tools_accepts_flat_function_tools():
+    tools = validate_tools(
+        FunctionTool(
+            name="lookup",
+            description="Look up a record.",
+            parameters={"type": "object"},
+        )
+    )
+    assert tools == [
+        FunctionToolDefinition(
+            function=FunctionDef(
+                name="lookup",
+                description="Look up a record.",
+                parameters={"type": "object"},
+            )
+        )
+    ]
+
+
+def test_validate_response_tools_accept_nested_tool_definitions():
+    tools = validate_response_tools(
+        fn_tool_definition(
+            name="lookup",
+            description="Look up a record.",
+            parameters={"type": "object"},
+        )
     )
     assert tools == [
         FunctionTool(

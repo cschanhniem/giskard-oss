@@ -96,6 +96,9 @@ class FunctionToolDefinition(_BaseModel):
     function: FunctionDef
 
 
+type ToolInput = FunctionTool | FunctionToolDefinition | dict[str, Any]
+
+
 class UnknownTool(_BaseModel, extra="allow"):
     type: str
 
@@ -458,6 +461,46 @@ def fn_tool_definition(
     )
 
 
+def _tool_definition_from_flat_tool(tool: FunctionTool) -> FunctionToolDefinition:
+    return FunctionToolDefinition(
+        type=tool.type,
+        function=FunctionDef(
+            name=tool.name,
+            description=tool.description,
+            parameters=tool.parameters,
+        ),
+    )
+
+
+def _flat_tool_from_definition(tool: FunctionToolDefinition) -> FunctionTool:
+    return FunctionTool(
+        type=tool.type,
+        name=tool.function.name,
+        description=tool.function.description,
+        parameters=tool.function.parameters,
+    )
+
+
+def _coerce_tool_definition(tool: ToolInput) -> FunctionToolDefinition:
+    if isinstance(tool, FunctionToolDefinition):
+        return tool
+    if isinstance(tool, FunctionTool):
+        return _tool_definition_from_flat_tool(tool)
+    if "function" in tool:
+        return FunctionToolDefinition.model_validate(tool)
+    return _tool_definition_from_flat_tool(FunctionTool.model_validate(tool))
+
+
+def _coerce_response_tool(tool: ToolInput) -> FunctionTool:
+    if isinstance(tool, FunctionTool):
+        return tool
+    if isinstance(tool, FunctionToolDefinition):
+        return _flat_tool_from_definition(tool)
+    if "function" in tool:
+        return _flat_tool_from_definition(FunctionToolDefinition.model_validate(tool))
+    return FunctionTool.model_validate(tool)
+
+
 # -- Validation / serialization helpers ---------------------------------------
 
 
@@ -505,23 +548,13 @@ def validate_messages(*messages: Message | dict[str, Any]) -> list[Message]:
     return _MESSAGE_LIST_ADAPTER.validate_python(list(messages))
 
 
-_TOOL_LIST_ADAPTER: TypeAdapter[list[FunctionToolDefinition]] = TypeAdapter(
-    list[FunctionToolDefinition]
-)
-
-
 def validate_tools(
-    *tools: FunctionToolDefinition | dict[str, Any],
+    *tools: ToolInput,
 ) -> list[FunctionToolDefinition]:
-    return _TOOL_LIST_ADAPTER.validate_python(list(tools))
-
-
-_RESPONSE_TOOL_LIST_ADAPTER: TypeAdapter[list[FunctionTool]] = TypeAdapter(
-    list[FunctionTool]
-)
+    return [_coerce_tool_definition(tool) for tool in tools]
 
 
 def validate_response_tools(
-    *tools: FunctionTool | dict[str, Any],
+    *tools: ToolInput,
 ) -> list[FunctionTool]:
-    return _RESPONSE_TOOL_LIST_ADAPTER.validate_python(list(tools))
+    return [_coerce_response_tool(tool) for tool in tools]

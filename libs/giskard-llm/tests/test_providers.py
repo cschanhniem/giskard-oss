@@ -22,6 +22,7 @@ from giskard.llm.types import (
     ResponseOutputFunctionCall,
     ResponseOutputMessage,
     assistant,
+    fn_tool_definition,
     tool,
     user,
 )
@@ -194,10 +195,44 @@ async def test_openai_completion_with_typed_tool_calls(mock_import):
 
 
 @patch("giskard.llm.providers.openai._import_openai")
+async def test_openai_completion_accepts_flat_tools(mock_import):
+    mock_import.return_value = MagicMock()
+    provider = _make_openai_provider()
+    provider._client.chat.completions.create = AsyncMock(
+        return_value=_make_openai_response("Hello world")
+    )
+
+    _ = await provider.complete(
+        "gpt-4o",
+        [{"role": "user", "content": "Hi"}],
+        tools=[
+            FunctionTool(
+                name="lookup",
+                description="Look up a record.",
+                parameters={"type": "object"},
+            )
+        ],
+    )
+
+    assert provider._client.chat.completions.create.await_args is not None
+    kwargs = provider._client.chat.completions.create.await_args.kwargs
+    assert kwargs["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "description": "Look up a record.",
+                "parameters": {"type": "object"},
+            },
+        }
+    ]
+
+
+@patch("giskard.llm.providers.openai._import_openai")
 async def test_openai_embedding(mock_import):
     mock_import.return_value = MagicMock()
     provider = _make_openai_provider()
-    provider._client.embeddings = MagicMock()  # pyright: ignore[reportAttributeAccessIssue]
+    provider._client.embeddings = MagicMock()
     provider._client.embeddings.create = AsyncMock(
         return_value=_make_openai_embedding_response([[0.1, 0.2], [0.3, 0.4]])
     )
@@ -496,6 +531,38 @@ async def test_openai_respond_typed_messages_and_tools(mock_import):
 
     kwargs = provider._client.responses.create.await_args.kwargs
     assert kwargs["input"] == [{"role": "user", "content": "Hello"}]
+    assert kwargs["tools"] == [
+        {
+            "type": "function",
+            "name": "lookup",
+            "description": "Look up a record.",
+            "parameters": {"type": "object"},
+        }
+    ]
+
+
+@patch("giskard.llm.providers.openai._import_openai")
+async def test_openai_respond_accepts_nested_tool_definitions(mock_import):
+    mock_import.return_value = MagicMock()
+    provider = _make_openai_provider()
+    provider._client.responses = MagicMock()
+    provider._client.responses.create = AsyncMock(
+        return_value=_make_openai_response_api_response()
+    )
+
+    await provider.respond(
+        "gpt-4o",
+        [user("Hello")],
+        tools=[
+            fn_tool_definition(
+                name="lookup",
+                description="Look up a record.",
+                parameters={"type": "object"},
+            )
+        ],
+    )
+
+    kwargs = provider._client.responses.create.await_args.kwargs
     assert kwargs["tools"] == [
         {
             "type": "function",
