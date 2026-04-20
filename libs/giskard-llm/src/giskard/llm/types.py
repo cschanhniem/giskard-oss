@@ -436,7 +436,10 @@ def assistant(
     tool_calls: list[ToolCall] | None = None,
 ) -> AssistantMessage:
     return AssistantMessage(
-        role="assistant", content=list(content), name=name, tool_calls=tool_calls
+        role="assistant",
+        content=list(content) if content else None,
+        name=name,
+        tool_calls=tool_calls,
     )
 
 
