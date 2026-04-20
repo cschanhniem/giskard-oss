@@ -16,9 +16,14 @@ from giskard.llm.providers.base import (
 from giskard.llm.providers.google import GoogleProvider
 from giskard.llm.providers.openai import OpenAIProvider
 from giskard.llm.types import (
+    Function,
     FunctionCall,
+    FunctionTool,
     ResponseOutputFunctionCall,
     ResponseOutputMessage,
+    assistant,
+    tool,
+    user,
 )
 
 # -- Helpers -------------------------------------------------------------------
@@ -455,6 +460,52 @@ async def test_openai_respond_function_call(mock_import):
     assert resp.outputs[0].call_id == "call_123"
 
 
+def test_openai_coerce_response_input_accepts_typed_messages_and_wire_items():
+    provider = _make_openai_provider()
+    result = provider._coerce_response_input(
+        [
+            user("Hello"),
+            {"type": "function_call", "call_id": "call_1", "name": "lookup"},
+        ]
+    )
+
+    assert result[0] == {"role": "user", "content": "Hello"}
+    assert result[1] == {"type": "function_call", "call_id": "call_1", "name": "lookup"}
+
+
+@patch("giskard.llm.providers.openai._import_openai")
+async def test_openai_respond_typed_messages_and_tools(mock_import):
+    mock_import.return_value = MagicMock()
+    provider = _make_openai_provider()
+    provider._client.responses = MagicMock()
+    provider._client.responses.create = AsyncMock(
+        return_value=_make_openai_response_api_response()
+    )
+
+    await provider.respond(
+        "gpt-4o",
+        [user("Hello")],
+        tools=[
+            FunctionTool(
+                name="lookup",
+                description="Look up a record.",
+                parameters={"type": "object"},
+            )
+        ],
+    )
+
+    kwargs = provider._client.responses.create.await_args.kwargs
+    assert kwargs["input"] == [{"role": "user", "content": "Hello"}]
+    assert kwargs["tools"] == [
+        {
+            "type": "function",
+            "name": "lookup",
+            "description": "Look up a record.",
+            "parameters": {"type": "object"},
+        }
+    ]
+
+
 @patch("giskard.llm.providers.openai._import_openai")
 async def test_openai_respond_error_mapping(mock_import):
     openai = pytest.importorskip("openai")
@@ -524,6 +575,23 @@ async def test_google_respond_function_call(mock_errors):
     assert resp.outputs[0].arguments == {"city": "Tokyo"}
 
 
+def test_google_coerce_response_input_flattens_typed_messages():
+    provider = _make_google_provider()
+    result = provider._coerce_response_input(
+        [
+            user("Hello"),
+            {"type": "function_call_output", "call_id": "call_1", "output": "42"},
+        ]
+    )
+
+    assert result[0] == {"role": "user", "content": "Hello"}
+    assert result[1] == {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": "42",
+    }
+
+
 # -- Protocol conformance checks -----------------------------------------------
 
 
@@ -565,6 +633,10 @@ class TestGoogleConvertMessages:
     def test_assistant_becomes_model(self):
         result = self._convert([{"role": "assistant", "content": "Hi"}])
         assert result == [{"role": "model", "parts": [{"text": "Hi"}]}]
+
+    def test_typed_user_message(self):
+        result = self._convert([user("Hello")])
+        assert result == [{"role": "user", "parts": [{"text": "Hello"}]}]
 
     def test_system_messages_skipped(self):
         result = self._convert(
@@ -614,6 +686,13 @@ class TestGoogleConvertMessages:
         )
         assert result[0]["role"] == "user"
 
+    def test_typed_tool_message_uses_text_content(self):
+        result = self._convert([tool("42", tool_call_id="call_1")])
+        assert result[0]["role"] == "user"
+        assert result[0]["parts"][0]["function_response"]["response"] == {
+            "result": "42"
+        }
+
     def test_assistant_with_tool_calls(self):
         result = self._convert(
             [
@@ -637,6 +716,25 @@ class TestGoogleConvertMessages:
         fc = result[0]["parts"][0]["function_call"]
         assert fc["name"] == "add"
         assert fc["args"] == {"a": 1, "b": 2}
+
+    def test_typed_assistant_with_tool_calls(self):
+        result = self._convert(
+            [
+                assistant(
+                    tool_calls=[
+                        FunctionCall(
+                            id="call_1",
+                            function=Function(name="add", arguments='{"a": 1, "b": 2}'),
+                        )
+                    ]
+                )
+            ]
+        )
+        assert result[0]["role"] == "model"
+        assert result[0]["parts"][0]["function_call"] == {
+            "name": "add",
+            "args": {"a": 1, "b": 2},
+        }
 
     def test_multiple_tool_calls_in_one_message(self):
         result = self._convert(
@@ -771,6 +869,11 @@ class TestGoogleNormalizeInputItems:
         result = self._normalize(items)
         assert result == [{"type": "text", "text": "Hello"}]
 
+    def test_role_tagged_turn_flattens_text_parts(self):
+        items = [{"role": "user", "content": [{"type": "text", "text": "Hello"}]}]
+        result = self._normalize(items)
+        assert result == [{"type": "text", "text": "Hello"}]
+
     def test_role_tagged_turn_empty_content(self):
         items = [{"role": "user", "content": ""}]
         result = self._normalize(items)
@@ -837,6 +940,10 @@ class TestAnthropicConvertMessages:
         result = self._convert([{"role": "assistant", "content": "Hi"}])
         assert result == [{"role": "assistant", "content": "Hi"}]
 
+    def test_typed_user_message(self):
+        result = self._convert([user("Hello")])
+        assert result == [{"role": "user", "content": "Hello"}]
+
     def test_tool_becomes_user_with_tool_result(self):
         result = self._convert(
             [{"role": "tool", "tool_call_id": "call_1", "content": "42"}]
@@ -845,6 +952,12 @@ class TestAnthropicConvertMessages:
         assert result[0]["role"] == "user"
         block = result[0]["content"][0]
         assert block["type"] == "tool_result"
+        assert block["tool_use_id"] == "call_1"
+        assert block["content"] == "42"
+
+    def test_typed_tool_message(self):
+        result = self._convert([tool("42", tool_call_id="call_1")])
+        block = result[0]["content"][0]
         assert block["tool_use_id"] == "call_1"
         assert block["content"] == "42"
 
@@ -913,6 +1026,25 @@ class TestAnthropicConvertMessages:
         assert content[0]["type"] == "text"
         assert content[0]["text"] == "Let me check"
         assert content[1]["type"] == "tool_use"
+
+    def test_typed_assistant_with_content_and_tool_calls(self):
+        result = self._convert(
+            [
+                assistant(
+                    "Let me check",
+                    tool_calls=[
+                        FunctionCall(
+                            id="call_1",
+                            function=Function(name="search", arguments='{"q": "test"}'),
+                        )
+                    ],
+                )
+            ]
+        )
+        content = result[0]["content"]
+        assert content[0] == {"type": "text", "text": "Let me check"}
+        assert content[1]["type"] == "tool_use"
+        assert content[1]["name"] == "search"
 
     def test_full_tool_roundtrip_sequence(self):
         """user -> assistant(tool_calls) -> tool -> should produce valid

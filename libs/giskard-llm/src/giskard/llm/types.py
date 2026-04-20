@@ -6,7 +6,7 @@ OpenAI-shaped canonical schema that providers translate to/from their own
 wire formats.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Annotated, Any, Literal, TypeVar
 
 from pydantic import (
@@ -15,6 +15,7 @@ from pydantic import (
     Discriminator,
     Field,
     Tag,
+    TypeAdapter,
     ValidationError,
     model_validator,
 )
@@ -180,16 +181,37 @@ OutputContent = Annotated[
 
 
 class InputMessage(_BaseModel):
-    type: Literal["message"] = "message"
     role: Literal["user"] = "user"
     content: ContentParts[InputContent]
     name: str | None = None
+
+    @property
+    def text(self) -> str | None:
+        if self.content is None:
+            return None
+
+        if isinstance(self.content, str):
+            return self.content
+
+        texts = [part.text for part in self.content if isinstance(part, TextContent)]
+        return "\n".join(texts) if texts else None
 
 
 class SystemMessage(_BaseModel):
     role: Literal["system", "developer"] = "system"
     content: ContentParts[TextContent]
     name: str | None = None
+
+    @property
+    def text(self) -> str | None:
+        if self.content is None:
+            return None
+
+        if isinstance(self.content, str):
+            return self.content
+
+        texts = [part.text for part in self.content if isinstance(part, TextContent)]
+        return "\n".join(texts) if texts else None
 
 
 class AssistantMessage(_BaseModel):
@@ -249,6 +271,14 @@ class ToolMessage(_BaseModel):
     tool_call_id: str | None = None
     name: str | None = None
     content: ContentParts[TextContent]
+
+    @property
+    def text(self) -> str | None:
+        if isinstance(self.content, str):
+            return self.content
+
+        texts = [part.text for part in self.content if isinstance(part, TextContent)]
+        return "\n".join(texts) if texts else None
 
 
 class FunctionMessage(_BaseModel):
@@ -426,3 +456,72 @@ def fn_tool_definition(
         type="function",
         function=FunctionDef(name=name, description=description, parameters=parameters),
     )
+
+
+# -- Validation / serialization helpers ---------------------------------------
+
+
+def flatten_text_content(value: Any) -> Any:
+    """Collapse text-only content part lists to a plain string."""
+    if not isinstance(value, list):
+        return value
+    if not value:
+        return ""
+
+    texts: list[str] = []
+    for part in value:
+        if isinstance(part, dict) and part.get("type") == "text" and "text" in part:
+            texts.append(part["text"])
+        else:
+            return value
+
+    return "\n".join(texts) if texts else ""
+
+
+def serialize_message(
+    message: Message, *, flatten_text: bool = False
+) -> dict[str, Any]:
+    """Serialize a validated message to an OpenAI-shaped dict."""
+    dumped = message.model_dump()
+    if flatten_text and "content" in dumped and dumped["content"] is not None:
+        dumped["content"] = flatten_text_content(dumped["content"])
+    return dumped
+
+
+def serialize_messages(
+    messages: Sequence[Message], *, flatten_text: bool = False
+) -> list[dict[str, Any]]:
+    return [
+        serialize_message(message, flatten_text=flatten_text) for message in messages
+    ]
+
+
+# -- Type adapters ---------------------------------------
+
+_MESSAGE_LIST_ADAPTER: TypeAdapter[list[Message]] = TypeAdapter(list[Message])
+
+
+def validate_messages(*messages: Message | dict[str, Any]) -> list[Message]:
+    return _MESSAGE_LIST_ADAPTER.validate_python(list(messages))
+
+
+_TOOL_LIST_ADAPTER: TypeAdapter[list[FunctionToolDefinition]] = TypeAdapter(
+    list[FunctionToolDefinition]
+)
+
+
+def validate_tools(
+    *tools: FunctionToolDefinition | dict[str, Any],
+) -> list[FunctionToolDefinition]:
+    return _TOOL_LIST_ADAPTER.validate_python(list(tools))
+
+
+_RESPONSE_TOOL_LIST_ADAPTER: TypeAdapter[list[FunctionTool]] = TypeAdapter(
+    list[FunctionTool]
+)
+
+
+def validate_response_tools(
+    *tools: FunctionTool | dict[str, Any],
+) -> list[FunctionTool]:
+    return _RESPONSE_TOOL_LIST_ADAPTER.validate_python(list(tools))

@@ -71,12 +71,17 @@ from ..types import (
     ResponseOutputItem,
     ResponseOutputMessage,
     ResponseResult,
+    SystemMessage,
     TextContent,
     ToolCall,
+    ToolMessage,
     Usage,
+    serialize_messages,
+    validate_messages,
+    validate_response_tools,
+    validate_tools,
 )
 from ..utils import compact
-from ._coerce import coerce_completion_tools, coerce_messages, coerce_response_tools
 
 logger = logging.getLogger(__name__)
 
@@ -145,12 +150,13 @@ class OpenAIProvider:
         **params: Any,
     ) -> ChatCompletion:
         openai = _import_openai()
-        coerced_messages = coerce_messages(messages)
-        self._validate_messages(coerced_messages)
-        coerced_tools = coerce_completion_tools(tools)
-        if coerced_tools is not None:
-            params["tools"] = coerced_tools
-        kwargs = self._build_completion_kwargs(model, coerced_messages, params)
+        messages = validate_messages(*messages)
+        self._validate_messages(messages)
+
+        if tools is not None:
+            params["tools"] = [tool.model_dump() for tool in validate_tools(*tools)]
+
+        kwargs = self._build_completion_kwargs(model, messages, params)
         try:
             raw = await self._client.chat.completions.create(**kwargs)
         except openai.APIError as e:
@@ -185,12 +191,12 @@ class OpenAIProvider:
 
     # -- validation ------------------------------------------------------------
 
-    def _validate_messages(self, messages: Sequence[dict[str, Any]]) -> None:
+    def _validate_messages(self, messages: Sequence[Message]) -> None:
         if not messages:
             raise BadRequestError(
                 400, "Messages list must not be empty.", self._PROVIDER
             )
-        has_non_system = any(m.get("role") != "system" for m in messages)
+        has_non_system = any(not isinstance(m, SystemMessage) for m in messages)
         if not has_non_system:
             raise BadRequestError(
                 400,
@@ -198,11 +204,11 @@ class OpenAIProvider:
                 self._PROVIDER,
             )
         for m in messages:
-            if m.get("role") == "tool" and not m.get("tool_call_id"):
+            if isinstance(m, ToolMessage) and not m.tool_call_id:
                 raise BadRequestError(
                     400, "Tool messages must have a tool_call_id.", self._PROVIDER
                 )
-            if m.get("role") == "system" and not (m.get("content") or "").strip():
+            if isinstance(m, SystemMessage) and (m.text is None or not m.text.strip()):
                 raise BadRequestError(
                     400, "System messages must have non-empty content.", self._PROVIDER
                 )
@@ -212,7 +218,7 @@ class OpenAIProvider:
     def _build_completion_kwargs(
         self,
         model: str,
-        messages: Sequence[dict[str, Any]],
+        messages: Sequence[Message],
         params: dict[str, Any],
     ) -> dict[str, Any]:
         """Build kwargs dict for the Chat Completions API."""
@@ -224,7 +230,10 @@ class OpenAIProvider:
                 sorted(unknown),
             )
 
-        kwargs: dict[str, Any] = {"model": model, "messages": messages}
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": serialize_messages(messages, flatten_text=True),
+        }
 
         if params.get("temperature") is not None:
             kwargs["temperature"] = params["temperature"]
@@ -259,28 +268,28 @@ class OpenAIProvider:
     def _to_completion_response(self, raw: Any) -> ChatCompletion:
         """Convert raw SDK response to ChatCompletion."""
         choices: list[Choice] = []
-        for c in raw.choices:
+        for choice in raw.choices:
             tool_calls: list[ToolCall] | None = None
-            if c.message.tool_calls:
+            if choice.message.tool_calls:
                 tool_calls = [
                     FunctionCall(
-                        id=tc.id,
+                        id=tool_call.id,
                         function=Function(
-                            name=tc.function.name,
-                            arguments=tc.function.arguments,
+                            name=tool_call.function.name,
+                            arguments=tool_call.function.arguments,
                         ),
                     )
-                    for tc in c.message.tool_calls
+                    for tool_call in choice.message.tool_calls
                 ]
-            content = c.message.content if c.message.content else None
+
             choices.append(
                 Choice(
                     message=AssistantMessage(
-                        content=content,
+                        content=choice.message.content,
                         tool_calls=tool_calls,
                     ),
-                    finish_reason=c.finish_reason,
-                    index=c.index,
+                    finish_reason=choice.finish_reason,
+                    index=choice.index,
                 )
             )
 
@@ -342,7 +351,11 @@ class OpenAIProvider:
             ]
         else:
             coerced_input = input
-        coerced_tools = coerce_response_tools(tools)
+        coerced_tools = None
+        if tools is not None:
+            coerced_tools = [
+                tool.model_dump() for tool in validate_response_tools(*tools)
+            ]
         kwargs: dict[str, Any] = {"model": model, "input": coerced_input}
         if instructions is not None:
             kwargs["instructions"] = instructions
@@ -369,15 +382,20 @@ class OpenAIProvider:
 
         Items can be Message models, role-tagged dicts (conversation turns),
         or typed wire items (``function_call``, ``function_call_output``, ...).
-        Message-like items are validated via the Message adapter and flattened
-        to role/content dicts; wire items are passed through as-is.
+        Message-like items are validated via the shared message adapter and
+        serialized back to role/content dicts; wire items are passed through as-is.
         """
         result: list[dict[str, Any]] = []
         for item in items:
             if isinstance(item, dict) and "role" not in item and "type" in item:
                 result.append(item)
                 continue
-            result.extend(coerce_messages([item]))
+            result.extend(
+                serialize_messages(
+                    validate_messages(item),
+                    flatten_text=True,
+                )
+            )
         return result
 
     def _normalize_input_item(self, item: dict[str, Any]) -> dict[str, Any]:

@@ -69,11 +69,14 @@ from ..types import (
     FunctionCall,
     FunctionToolDefinition,
     Message,
+    SystemMessage,
     ToolCall,
+    ToolMessage,
     Usage,
+    validate_messages,
+    validate_tools,
 )
 from ..utils import compact
-from ._coerce import coerce_completion_tools, coerce_messages
 
 logger = logging.getLogger(__name__)
 
@@ -168,12 +171,11 @@ class AnthropicProvider:
         **params: Any,
     ) -> ChatCompletion:
         anthropic = _import_anthropic()
-        coerced_messages = coerce_messages(messages)
-        self._validate_messages(coerced_messages)
-        coerced_tools = coerce_completion_tools(tools)
-        if coerced_tools is not None:
-            params["tools"] = coerced_tools
-        kwargs = self._build_completion_kwargs(model, coerced_messages, params)
+        messages = validate_messages(*messages)
+        self._validate_messages(messages)
+        if tools is not None:
+            params["tools"] = validate_tools(*tools)
+        kwargs = self._build_completion_kwargs(model, messages, params)
 
         try:
             raw = await self._client.messages.create(**kwargs)
@@ -184,12 +186,16 @@ class AnthropicProvider:
 
     # -- validation ------------------------------------------------------------
 
-    def _validate_messages(self, messages: Sequence[dict[str, Any]]) -> None:
+    def _validate_messages(self, messages: Sequence[Message]) -> None:
         if not messages:
             raise BadRequestError(400, "Messages list must not be empty.", PROVIDER)
 
-        system_count = sum(1 for m in messages if m.get("role") == "system")
-        has_non_system = any(m.get("role") != "system" for m in messages)
+        system_count = sum(
+            1 for message in messages if isinstance(message, SystemMessage)
+        )
+        has_non_system = any(
+            not isinstance(message, SystemMessage) for message in messages
+        )
         if not has_non_system:
             raise BadRequestError(
                 400, "Messages must contain at least one non-system message.", PROVIDER
@@ -203,10 +209,12 @@ class AnthropicProvider:
                 PROVIDER,
             )
 
-        non_system = [m for m in messages if m.get("role") != "system"]
+        non_system = [
+            message for message in messages if not isinstance(message, SystemMessage)
+        ]
         for i in range(1, len(non_system)):
-            prev_role = non_system[i - 1].get("role")
-            curr_role = non_system[i].get("role")
+            prev_role = non_system[i - 1].role
+            curr_role = non_system[i].role
             # Skip: consecutive tool messages are valid (they merge into
             # a single user message with multiple tool_result blocks).
             if prev_role == "tool" or curr_role == "tool":
@@ -219,12 +227,14 @@ class AnthropicProvider:
                     PROVIDER,
                 )
 
-        for m in messages:
-            if m.get("role") == "tool" and not m.get("tool_call_id"):
+        for message in messages:
+            if isinstance(message, ToolMessage) and not message.tool_call_id:
                 raise BadRequestError(
                     400, "Tool messages must have a tool_call_id.", PROVIDER
                 )
-            if m.get("role") == "system" and not (m.get("content") or "").strip():
+            if isinstance(message, SystemMessage) and (
+                message.text is None or not message.text.strip()
+            ):
                 raise BadRequestError(
                     400, "System messages must have non-empty content.", PROVIDER
                 )
@@ -234,7 +244,7 @@ class AnthropicProvider:
     def _build_completion_kwargs(
         self,
         model: str,
-        messages: Sequence[dict[str, Any]],
+        messages: Sequence[Message],
         params: dict[str, Any],
     ) -> dict[str, Any]:
         """Build kwargs dict for the Anthropic Messages API."""
@@ -283,31 +293,31 @@ class AnthropicProvider:
         return kwargs
 
     def _split_system_messages(
-        self, messages: Sequence[dict[str, Any]]
-    ) -> tuple[list[str], list[dict[str, Any]]]:
+        self, messages: Sequence[Message | dict[str, Any]]
+    ) -> tuple[list[str], list[Message]]:
         """Separate system messages from conversation messages."""
+        validated_messages = validate_messages(*messages)
         system: list[str] = []
-        rest: list[dict[str, Any]] = []
-        for m in messages:
-            if m.get("role") == "system":
-                system.append(m.get("content", "") or "")
+        rest: list[Message] = []
+        for message in validated_messages:
+            if isinstance(message, SystemMessage):
+                system.append(message.text or "")
             else:
-                rest.append(m)
+                rest.append(message)
         return system, rest
 
     def _convert_messages(
-        self, messages: Sequence[dict[str, Any]]
+        self, messages: Sequence[Message | dict[str, Any]]
     ) -> list[_AnthropicMessage]:
         """Convert OpenAI-format messages to Anthropic format."""
+        validated_messages = validate_messages(*messages)
         result: list[_AnthropicMessage] = []
-        for msg in messages:
-            role = msg.get("role", "user")
-
-            if role == "tool":
+        for message in validated_messages:
+            if isinstance(message, ToolMessage):
                 block: _ToolResultContent = {
                     "type": "tool_result",
-                    "tool_use_id": msg.get("tool_call_id", ""),
-                    "content": msg.get("content", "") or "",
+                    "tool_use_id": message.tool_call_id or "",
+                    "content": message.text or "",
                 }
                 # Merge consecutive tool messages into a single user message
                 prev = result[-1] if result else None
@@ -319,17 +329,17 @@ class AnthropicProvider:
                     prev["content"].append(block)  # type: ignore[union-attr]
                 else:
                     result.append({"role": "user", "content": [block]})
-            elif role == "assistant" and msg.get("tool_calls"):
+            elif isinstance(message, AssistantMessage) and message.tool_calls:
                 content: list[_ToolResultContent | _ToolUseContent | _TextContent] = []
-                if msg.get("content"):
-                    content.append({"type": "text", "text": msg.get("content") or ""})
-                for tc in msg.get("tool_calls", []):
-                    tc_func = tc if isinstance(tc, dict) else tc.model_dump()
-                    func = tc_func.get("function", tc_func)
+                if message.text:
+                    content.append({"type": "text", "text": message.text})
+                for tool_call in message.tool_calls:
+                    tool_call_data = tool_call.model_dump()
+                    func = tool_call_data.get("function", tool_call_data)
                     content.append(
                         {
                             "type": "tool_use",
-                            "id": tc_func.get("id", ""),
+                            "id": tool_call_data.get("id", ""),
                             "name": func.get("name", ""),
                             "input": json.loads(func.get("arguments", "{}")),
                         }
@@ -338,19 +348,18 @@ class AnthropicProvider:
             else:
                 result.append(
                     {
-                        "role": role,
-                        "content": msg.get("content", "") or "",
+                        "role": message.role,
+                        "content": getattr(message, "text", None) or "",
                     }
                 )
         return result
 
-    def _convert_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
+    def _convert_tool(self, tool: FunctionToolDefinition) -> dict[str, Any]:
         """Convert an OpenAI-format tool to Anthropic format."""
-        func = tool.get("function", {})
         return {
-            "name": func.get("name", ""),
-            "description": func.get("description", ""),
-            "input_schema": func.get("parameters", {}),
+            "name": tool.function.name,
+            "description": tool.function.description,
+            "input_schema": tool.function.parameters,
         }
 
     def _to_completion_response(self, raw: Any) -> ChatCompletion:

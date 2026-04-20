@@ -7,12 +7,16 @@ from giskard.llm.types import (
     Function,
     FunctionCall,
     FunctionMessage,
+    FunctionTool,
     InputMessage,
     Message,
     RefusalContent,
     SystemMessage,
     TextContent,
     ToolMessage,
+    flatten_text_content,
+    serialize_messages,
+    validate_response_tools,
 )
 from pydantic import TypeAdapter
 
@@ -78,6 +82,44 @@ def test_assistant_message_includes_typed_tool_calls():
     assert dump["tool_calls"] is not None
     assert len(dump["tool_calls"]) == 1
     assert dump["tool_calls"][0]["function"]["name"] == "add"
+
+
+def test_flatten_text_content_collapses_text_only_parts():
+    assert (
+        flatten_text_content(
+            [{"type": "text", "text": "Hello"}, {"type": "text", "text": "World"}]
+        )
+        == "Hello\nWorld"
+    )
+
+
+def test_flatten_text_content_keeps_non_text_parts():
+    value = [{"type": "text", "text": "Hello"}, {"type": "refusal", "text": "Nope"}]
+    assert flatten_text_content(value) == value
+
+
+def test_serialize_messages_can_flatten_text_parts():
+    dumped = serialize_messages([InputMessage(content="Hi")], flatten_text=True)
+    assert dumped == [{"role": "user", "content": "Hi"}]
+
+
+def test_validate_response_tools_accepts_dicts():
+    tools = validate_response_tools(
+        {
+            "type": "function",
+            "name": "lookup",
+            "description": "Look up a record.",
+            "parameters": {"type": "object"},
+        }
+    )
+    assert tools == [
+        FunctionTool(
+            type="function",
+            name="lookup",
+            description="Look up a record.",
+            parameters={"type": "object"},
+        )
+    ]
 
 
 def test_function_call_defaults_type_function():

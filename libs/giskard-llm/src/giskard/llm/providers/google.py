@@ -81,11 +81,17 @@ from ..types import (
     ResponseOutputItem,
     ResponseOutputMessage,
     ResponseResult,
+    SystemMessage,
     TextContent,
     ToolCall,
+    ToolMessage,
     Usage,
+    flatten_text_content,
+    serialize_messages,
+    validate_messages,
+    validate_response_tools,
+    validate_tools,
 )
-from ._coerce import coerce_completion_tools, coerce_messages, coerce_response_tools
 
 logger = logging.getLogger(__name__)
 
@@ -208,13 +214,12 @@ class GoogleProvider:
     ) -> ChatCompletion:
         types = _import_genai_types()
 
-        coerced_messages = coerce_messages(messages)
-        self._validate_messages(coerced_messages)
-        coerced_tools = coerce_completion_tools(tools)
-        if coerced_tools is not None:
-            params["tools"] = coerced_tools
-        contents = self._convert_messages(coerced_messages)
-        config = self._build_config(coerced_messages, params, types)
+        messages = validate_messages(*messages)
+        self._validate_messages(messages)
+        if tools is not None:
+            params["tools"] = validate_tools(*tools)
+        contents = self._convert_messages(messages)
+        config = self._build_config(messages, params, types)
 
         try:
             raw = await self._client.aio.models.generate_content(
@@ -262,20 +267,24 @@ class GoogleProvider:
 
     # -- validation ------------------------------------------------------------
 
-    def _validate_messages(self, messages: Sequence[dict[str, Any]]) -> None:
+    def _validate_messages(self, messages: Sequence[Message]) -> None:
         if not messages:
             raise BadRequestError(400, "Messages list must not be empty.", PROVIDER)
-        has_non_system = any(m.get("role") != "system" for m in messages)
+        has_non_system = any(
+            not isinstance(message, SystemMessage) for message in messages
+        )
         if not has_non_system:
             raise BadRequestError(
                 400, "Messages must contain at least one non-system message.", PROVIDER
             )
-        for m in messages:
-            if m.get("role") == "tool" and not m.get("tool_call_id"):
+        for message in messages:
+            if isinstance(message, ToolMessage) and not message.tool_call_id:
                 raise BadRequestError(
                     400, "Tool messages must have a tool_call_id.", PROVIDER
                 )
-            if m.get("role") == "system" and not (m.get("content") or "").strip():
+            if isinstance(message, SystemMessage) and (
+                message.text is None or not message.text.strip()
+            ):
                 raise BadRequestError(
                     400, "System messages must have non-empty content.", PROVIDER
                 )
@@ -283,42 +292,44 @@ class GoogleProvider:
     # -- helpers ---------------------------------------------------------------
 
     def _convert_messages(
-        self, messages: Sequence[dict[str, Any]]
+        self, messages: Sequence[Message | dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Convert OpenAI-format messages to Gemini content format."""
+        validated_messages = validate_messages(*messages)
         # Build tool_call_id → function_name map from assistant tool_calls
         tc_id_to_name: dict[str, str] = {}
-        for msg in messages:
-            for tc in msg.get("tool_calls") or []:
-                tc_data = tc if isinstance(tc, dict) else tc.model_dump()
-                tc_id_to_name[tc_data.get("id", "")] = tc_data.get("function", {}).get(
-                    "name", ""
-                )
+        for message in validated_messages:
+            if not isinstance(message, AssistantMessage) or not message.tool_calls:
+                continue
+            for tool_call in message.tool_calls:
+                tool_call_data = tool_call.model_dump()
+                tc_id_to_name[tool_call_data.get("id", "")] = tool_call_data.get(
+                    "function", {}
+                ).get("name", "")
 
         contents: list[dict[str, Any]] = []
-        for msg in messages:
-            role = msg.get("role", "user")
-            if role == "system":
+        for message in validated_messages:
+            role = message.role
+            if isinstance(message, SystemMessage):
                 continue
             if role == "assistant":
                 role = "model"
-            if role == "tool":
-                tc_id = msg.get("tool_call_id", "unknown")
+            if isinstance(message, ToolMessage):
+                tc_id = message.tool_call_id or "unknown"
                 parts = [
                     {
                         "function_response": {
                             "name": tc_id_to_name.get(tc_id, tc_id),
-                            "response": {"result": msg.get("content", "")},
+                            "response": {"result": message.text or ""},
                         }
                     }
                 ]
                 role = "user"
-            elif msg.get("tool_calls"):
-                raw_tcs = msg.get("tool_calls", [])
+            elif isinstance(message, AssistantMessage) and message.tool_calls:
                 parts = []
-                for tc in raw_tcs:
-                    tc_data = tc if isinstance(tc, dict) else tc.model_dump()
-                    func = tc_data.get("function", tc_data)
+                for tool_call in message.tool_calls:
+                    tool_call_data = tool_call.model_dump()
+                    func = tool_call_data.get("function", tool_call_data)
                     parts.append(
                         {
                             "function_call": {
@@ -328,12 +339,12 @@ class GoogleProvider:
                         }
                     )
             else:
-                parts = [{"text": (msg.get("content") or "")}]
+                parts = [{"text": getattr(message, "text", None) or ""}]
             contents.append({"role": role, "parts": parts})
         return contents
 
     def _build_config(
-        self, messages: Sequence[dict[str, Any]], params: dict[str, Any], types: Any
+        self, messages: Sequence[Message], params: dict[str, Any], types: Any
     ) -> Any:
         """Build a GenerateContentConfig from OpenAI-style params."""
         unknown = set(params) - KNOWN_COMPLETION_PARAMS
@@ -369,25 +380,26 @@ class GoogleProvider:
 
         return types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
-    def _convert_tool(self, tool: dict[str, Any], types: Any) -> Any:
+    def _convert_tool(self, tool: FunctionToolDefinition, types: Any) -> Any:
         """Convert an OpenAI-format tool to Gemini FunctionDeclaration."""
-        func = tool.get("function", {})
         return types.Tool(
             function_declarations=[
                 types.FunctionDeclaration(
-                    name=func.get("name", ""),
-                    description=func.get("description", ""),
-                    parameters=func.get("parameters"),
+                    name=tool.function.name,
+                    description=tool.function.description,
+                    parameters=tool.function.parameters,
                 )
             ]
         )
 
     def _extract_system_instructions(
-        self, messages: Sequence[dict[str, Any]]
+        self, messages: Sequence[Message | dict[str, Any]]
     ) -> list[str] | None:
         """Pull system messages out for use as system_instruction (list)."""
         parts = [
-            m.get("content", "") or "" for m in messages if m.get("role") == "system"
+            message.text or ""
+            for message in validate_messages(*messages)
+            if isinstance(message, SystemMessage)
         ]
         return parts if parts else None
 
@@ -491,7 +503,11 @@ class GoogleProvider:
         else:
             coerced_input = input
 
-        coerced_tools = coerce_response_tools(tools)
+        coerced_tools = None
+        if tools is not None:
+            coerced_tools = [
+                tool.model_dump() for tool in validate_response_tools(*tools)
+            ]
 
         kwargs: dict[str, Any] = {"model": model, "input": coerced_input}
         if instructions is not None:
@@ -520,7 +536,12 @@ class GoogleProvider:
             if isinstance(item, dict) and "role" not in item and "type" in item:
                 result.append(item)
                 continue
-            result.extend(coerce_messages([item]))
+            result.extend(
+                serialize_messages(
+                    validate_messages(item),
+                    flatten_text=True,
+                )
+            )
         return result
 
     def _normalize_input_items(
@@ -583,7 +604,10 @@ class GoogleProvider:
 
         # Role-tagged turn (TurnParam) → TextContentParam
         if "role" in item and "content" in item and "type" not in item:
-            return {"type": "text", "text": item.get("content") or ""}
+            return {
+                "type": "text",
+                "text": flatten_text_content(item.get("content")) or "",
+            }
 
         return item
 
