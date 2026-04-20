@@ -589,7 +589,7 @@ class GoogleProvider:
 
     def _to_response_result(self, raw: Any, model: str) -> ResponseResult:
         outputs: list[ResponseOutputItem] = []
-        for idx, item in enumerate(getattr(raw, "outputs", [])):
+        for item in getattr(raw, "outputs", []):
             item_type = getattr(item, "type", None)
             if item_type == "text":
                 content: list[OutputContent | str] = [TextContent(text=item.text)]
@@ -597,11 +597,7 @@ class GoogleProvider:
             elif item_type == "function_call":
                 args = getattr(item, "arguments", {})
                 # Google returns "id" on function_call outputs, not "call_id"
-                call_id = (
-                    getattr(item, "id", None)
-                    or getattr(item, "call_id", None)
-                    or f"call_{idx}"
-                )
+                call_id = getattr(item, "id", None) or getattr(item, "call_id", None)
                 outputs.append(
                     ResponseOutputFunctionCall(
                         call_id=call_id,

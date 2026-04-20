@@ -296,7 +296,7 @@ class ResponseOutputMessage(_BaseModel):
 
 class ResponseOutputFunctionCall(_BaseModel):
     type: Literal["function_call"] = "function_call"
-    call_id: str
+    call_id: str | None = None
     name: str
     arguments: dict[str, Any]
 

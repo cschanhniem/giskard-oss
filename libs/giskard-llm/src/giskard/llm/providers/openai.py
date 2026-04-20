@@ -395,7 +395,7 @@ class OpenAIProvider:
     def _to_response_result(self, raw: Any) -> ResponseResult:
         """Convert raw Responses API output to ResponseResult."""
         outputs: list[ResponseOutputItem] = []
-        for idx, item in enumerate(raw.output):
+        for item in raw.output:
             item_type = getattr(item, "type", None)
             if item_type == "message":
                 text_parts: list[OutputContent | str] = []
@@ -406,10 +406,9 @@ class OpenAIProvider:
                     outputs.append(ResponseOutputMessage(content=text_parts))
             elif item_type == "function_call":
                 args = getattr(item, "arguments", "{}")
-                call_id = getattr(item, "call_id", None) or f"call_{idx}"
                 outputs.append(
                     ResponseOutputFunctionCall(
-                        call_id=call_id,
+                        call_id=getattr(item, "call_id", None),
                         name=item.name,
                         arguments=json.loads(args) if isinstance(args, str) else args,
                     )
