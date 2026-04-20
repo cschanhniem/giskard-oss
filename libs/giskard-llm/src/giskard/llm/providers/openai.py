@@ -66,10 +66,13 @@ from ..types import (
     FunctionTool,
     FunctionToolDefinition,
     Message,
+    OutputContent,
     ResponseOutputFunctionCall,
+    ResponseOutputItem,
     ResponseOutputMessage,
     ResponseResult,
     TextContent,
+    ToolCall,
     Usage,
 )
 from ..utils import compact
@@ -257,7 +260,7 @@ class OpenAIProvider:
         """Convert raw SDK response to ChatCompletion."""
         choices: list[Choice] = []
         for c in raw.choices:
-            tool_calls: list[FunctionCall] | None = None
+            tool_calls: list[ToolCall] | None = None
             if c.message.tool_calls:
                 tool_calls = [
                     FunctionCall(
@@ -274,7 +277,7 @@ class OpenAIProvider:
                 Choice(
                     message=AssistantMessage(
                         content=content,
-                        tool_calls=tool_calls,  # pyright: ignore[reportArgumentType]
+                        tool_calls=tool_calls,
                     ),
                     finish_reason=c.finish_reason,
                     index=c.index,
@@ -391,18 +394,16 @@ class OpenAIProvider:
 
     def _to_response_result(self, raw: Any) -> ResponseResult:
         """Convert raw Responses API output to ResponseResult."""
-        outputs: list[ResponseOutputMessage | ResponseOutputFunctionCall] = []
+        outputs: list[ResponseOutputItem] = []
         for idx, item in enumerate(raw.output):
             item_type = getattr(item, "type", None)
             if item_type == "message":
-                text_parts: list[TextContent] = []
+                text_parts: list[OutputContent | str] = []
                 for content_block in getattr(item, "content", []):
                     if getattr(content_block, "type", None) == "output_text":
                         text_parts.append(TextContent(text=content_block.text))
                 if text_parts:
-                    outputs.append(
-                        ResponseOutputMessage(content=text_parts)  # pyright: ignore[reportArgumentType]
-                    )
+                    outputs.append(ResponseOutputMessage(content=text_parts))
             elif item_type == "function_call":
                 args = getattr(item, "arguments", "{}")
                 call_id = getattr(item, "call_id", None) or f"call_{idx}"
@@ -424,7 +425,7 @@ class OpenAIProvider:
 
         return ResponseResult(
             id=raw.id,
-            outputs=outputs,  # pyright: ignore[reportArgumentType]
+            outputs=outputs,
             model=getattr(raw, "model", None),
             usage=usage,
         )

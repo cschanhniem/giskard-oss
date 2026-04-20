@@ -76,10 +76,13 @@ from ..types import (
     FunctionTool,
     FunctionToolDefinition,
     Message,
+    OutputContent,
     ResponseOutputFunctionCall,
+    ResponseOutputItem,
     ResponseOutputMessage,
     ResponseResult,
     TextContent,
+    ToolCall,
     Usage,
 )
 from ._coerce import coerce_completion_tools, coerce_messages, coerce_response_tools
@@ -394,8 +397,8 @@ class GoogleProvider:
             return ChatCompletion(choices=[], model=model)
 
         for i, candidate in enumerate(raw.candidates):
-            content: list[TextContent] | None = None
-            tool_calls: list[FunctionCall] | None = None
+            content: str | None = None
+            tool_calls: list[ToolCall] | None = None
             finish_reason = "stop"
 
             if candidate.finish_reason:
@@ -410,13 +413,13 @@ class GoogleProvider:
 
             if candidate.content and candidate.content.parts:
                 text_parts: list[str] = []
-                fc_list: list[FunctionCall] = []
+                tc_list: list[ToolCall] = []
                 for idx, part in enumerate(candidate.content.parts):
                     if part.text is not None:
                         text_parts.append(part.text)
                     elif part.function_call is not None:
                         fc = part.function_call
-                        fc_list.append(
+                        tc_list.append(
                             FunctionCall(
                                 id=f"call_{idx}",
                                 function=Function(
@@ -427,18 +430,16 @@ class GoogleProvider:
                                 ),
                             )
                         )
-                content = (
-                    [TextContent(text="\n".join(text_parts))] if text_parts else None
-                )
-                if fc_list:
-                    tool_calls = fc_list
+                content = "\n".join(text_parts) if text_parts else None
+                if tc_list:
+                    tool_calls = tc_list
                     finish_reason = "tool_calls"
 
             choices.append(
                 Choice(
                     message=AssistantMessage(
-                        content=content,  # pyright: ignore[reportArgumentType]
-                        tool_calls=tool_calls,  # pyright: ignore[reportArgumentType]
+                        content=content,
+                        tool_calls=tool_calls,
                     ),
                     finish_reason=finish_reason,
                     index=i,
@@ -587,13 +588,12 @@ class GoogleProvider:
         return item
 
     def _to_response_result(self, raw: Any, model: str) -> ResponseResult:
-        outputs: list[ResponseOutputMessage | ResponseOutputFunctionCall] = []
+        outputs: list[ResponseOutputItem] = []
         for idx, item in enumerate(getattr(raw, "outputs", [])):
             item_type = getattr(item, "type", None)
             if item_type == "text":
-                outputs.append(
-                    ResponseOutputMessage(content=[TextContent(text=item.text)])  # pyright: ignore[reportArgumentType]
-                )
+                content: list[OutputContent | str] = [TextContent(text=item.text)]
+                outputs.append(ResponseOutputMessage(content=content))
             elif item_type == "function_call":
                 args = getattr(item, "arguments", {})
                 # Google returns "id" on function_call outputs, not "call_id"
@@ -623,7 +623,7 @@ class GoogleProvider:
 
         return ResponseResult(
             id=raw.id,
-            outputs=outputs,  # pyright: ignore[reportArgumentType]
+            outputs=outputs,
             model=model,
             usage=usage,
         )

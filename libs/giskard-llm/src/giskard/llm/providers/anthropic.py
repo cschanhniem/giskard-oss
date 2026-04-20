@@ -69,7 +69,7 @@ from ..types import (
     FunctionCall,
     FunctionToolDefinition,
     Message,
-    TextContent,
+    ToolCall,
     Usage,
 )
 from ..utils import compact
@@ -320,7 +320,7 @@ class AnthropicProvider:
                 else:
                     result.append({"role": "user", "content": [block]})
             elif role == "assistant" and msg.get("tool_calls"):
-                content: list[_ToolUseContent | _TextContent] = []
+                content: list[_ToolResultContent | _ToolUseContent | _TextContent] = []
                 if msg.get("content"):
                     content.append({"type": "text", "text": msg.get("content") or ""})
                 for tc in msg.get("tool_calls", []):
@@ -334,7 +334,7 @@ class AnthropicProvider:
                             "input": json.loads(func.get("arguments", "{}")),
                         }
                     )
-                result.append({"role": "assistant", "content": content})  # pyright: ignore[reportArgumentType]
+                result.append({"role": "assistant", "content": content})
             else:
                 result.append(
                     {
@@ -356,7 +356,7 @@ class AnthropicProvider:
     def _to_completion_response(self, raw: Any) -> ChatCompletion:
         """Convert raw SDK response to ChatCompletion."""
         content_text: list[str] = []
-        tool_calls: list[FunctionCall] = []
+        tool_calls: list[ToolCall] = []
 
         for block in raw.content:
             if block.type == "text":
@@ -382,12 +382,10 @@ class AnthropicProvider:
         }
         finish_reason = finish_reason_map.get(raw.stop_reason, "stop")
 
-        content: list[TextContent] | None = (
-            [TextContent(text="\n".join(content_text))] if content_text else None
-        )
+        content: str | None = "\n".join(content_text) if content_text else None
         message = AssistantMessage(
-            content=content,  # pyright: ignore[reportArgumentType]
-            tool_calls=tool_calls or None,  # pyright: ignore[reportArgumentType]
+            content=content,
+            tool_calls=tool_calls or None,
         )
 
         usage = None
