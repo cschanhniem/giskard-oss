@@ -226,6 +226,9 @@ class AssistantMessage(_BaseModel):
         if self.content is None:
             return None
 
+        if isinstance(self.content, str):
+            return self.content
+
         texts = [part.text for part in self.content if isinstance(part, TextContent)]
         return "\n".join(texts) if texts else None
 
