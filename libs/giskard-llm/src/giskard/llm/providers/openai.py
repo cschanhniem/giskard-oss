@@ -55,22 +55,25 @@ from ..errors import (
     ServerError,
 )
 from ..types import (
-    ChatMessage,
+    AssistantMessage,
+    ChatCompletion,
     Choice,
-    ChoiceMessage,
-    CompletionResponse,
     EmbeddingData,
     EmbeddingResponse,
     EmbeddingUsage,
+    Function,
+    FunctionCall,
+    FunctionTool,
+    FunctionToolDefinition,
+    Message,
     ResponseOutputFunctionCall,
-    ResponseOutputText,
+    ResponseOutputMessage,
     ResponseResult,
-    ToolCall,
-    ToolCallFunction,
-    ToolDef,
+    TextContent,
     Usage,
 )
 from ..utils import compact
+from ._coerce import coerce_completion_tools, coerce_messages, coerce_response_tools
 
 logger = logging.getLogger(__name__)
 
@@ -133,16 +136,18 @@ class OpenAIProvider:
     async def complete(
         self,
         model: str,
-        messages: Sequence[ChatMessage],
+        messages: Sequence[Message | dict[str, Any]],
         *,
-        tools: list[ToolDef] | None = None,
+        tools: Sequence[FunctionToolDefinition | dict[str, Any]] | None = None,
         **params: Any,
-    ) -> CompletionResponse:
+    ) -> ChatCompletion:
         openai = _import_openai()
-        self._validate_messages(messages)
-        if tools is not None:
-            params["tools"] = tools
-        kwargs = self._build_completion_kwargs(model, messages, params)
+        coerced_messages = coerce_messages(messages)
+        self._validate_messages(coerced_messages)
+        coerced_tools = coerce_completion_tools(tools)
+        if coerced_tools is not None:
+            params["tools"] = coerced_tools
+        kwargs = self._build_completion_kwargs(model, coerced_messages, params)
         try:
             raw = await self._client.chat.completions.create(**kwargs)
         except openai.APIError as e:
@@ -177,7 +182,7 @@ class OpenAIProvider:
 
     # -- validation ------------------------------------------------------------
 
-    def _validate_messages(self, messages: Sequence[ChatMessage]) -> None:
+    def _validate_messages(self, messages: Sequence[dict[str, Any]]) -> None:
         if not messages:
             raise BadRequestError(
                 400, "Messages list must not be empty.", self._PROVIDER
@@ -204,7 +209,7 @@ class OpenAIProvider:
     def _build_completion_kwargs(
         self,
         model: str,
-        messages: Sequence[ChatMessage],
+        messages: Sequence[dict[str, Any]],
         params: dict[str, Any],
     ) -> dict[str, Any]:
         """Build kwargs dict for the Chat Completions API."""
@@ -248,29 +253,28 @@ class OpenAIProvider:
 
         return kwargs
 
-    def _to_completion_response(self, raw: Any) -> CompletionResponse:
-        """Convert raw SDK response to CompletionResponse."""
-        choices = []
+    def _to_completion_response(self, raw: Any) -> ChatCompletion:
+        """Convert raw SDK response to ChatCompletion."""
+        choices: list[Choice] = []
         for c in raw.choices:
-            tool_calls = None
+            tool_calls: list[FunctionCall] | None = None
             if c.message.tool_calls:
                 tool_calls = [
-                    ToolCall(
+                    FunctionCall(
                         id=tc.id,
-                        type=tc.type,
-                        function=ToolCallFunction(
+                        function=Function(
                             name=tc.function.name,
                             arguments=tc.function.arguments,
                         ),
                     )
                     for tc in c.message.tool_calls
                 ]
+            content = c.message.content if c.message.content else None
             choices.append(
                 Choice(
-                    message=ChoiceMessage(
-                        role=c.message.role,
-                        content=c.message.content,
-                        tool_calls=tool_calls,
+                    message=AssistantMessage(
+                        content=content,
+                        tool_calls=tool_calls,  # pyright: ignore[reportArgumentType]
                     ),
                     finish_reason=c.finish_reason,
                     index=c.index,
@@ -285,7 +289,8 @@ class OpenAIProvider:
                 total_tokens=raw.usage.total_tokens,
             )
 
-        return CompletionResponse(
+        return ChatCompletion(
+            id=getattr(raw, "id", None),
             choices=choices,
             model=raw.model,
             usage=usage,
@@ -310,11 +315,11 @@ class OpenAIProvider:
     async def respond(
         self,
         model: str,
-        input: str | list[dict[str, Any]],
+        input: str | list[Message | dict[str, Any]],
         *,
         instructions: str | None = None,
         previous_id: str | None = None,
-        tools: list[ToolDef] | None = None,
+        tools: Sequence[FunctionTool | dict[str, Any]] | None = None,
         **params: Any,
     ) -> ResponseResult:
         unknown = set(params) - KNOWN_RESPONSE_PARAMS
@@ -326,15 +331,22 @@ class OpenAIProvider:
             )
 
         openai = _import_openai()
+        coerced_input: str | list[dict[str, Any]]
         if isinstance(input, list):
-            input = [self._normalize_input_item(item) for item in input]
-        kwargs: dict[str, Any] = {"model": model, "input": input}
+            coerced_input = [
+                self._normalize_input_item(item)
+                for item in self._coerce_response_input(input)
+            ]
+        else:
+            coerced_input = input
+        coerced_tools = coerce_response_tools(tools)
+        kwargs: dict[str, Any] = {"model": model, "input": coerced_input}
         if instructions is not None:
             kwargs["instructions"] = instructions
         if previous_id is not None:
             kwargs["previous_response_id"] = previous_id
-        if tools is not None:
-            kwargs["tools"] = [{"type": "function", **t["function"]} for t in tools]
+        if coerced_tools is not None:
+            kwargs["tools"] = coerced_tools
         if params.get("temperature") is not None:
             kwargs["temperature"] = params["temperature"]
         if params.get("max_tokens") is not None:
@@ -346,6 +358,24 @@ class OpenAIProvider:
             self._map_error(e)
 
         return self._to_response_result(raw)
+
+    def _coerce_response_input(
+        self, items: list[Message | dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Coerce Responses-API input items.
+
+        Items can be Message models, role-tagged dicts (conversation turns),
+        or typed wire items (``function_call``, ``function_call_output``, ...).
+        Message-like items are validated via the Message adapter and flattened
+        to role/content dicts; wire items are passed through as-is.
+        """
+        result: list[dict[str, Any]] = []
+        for item in items:
+            if isinstance(item, dict) and "role" not in item and "type" in item:
+                result.append(item)
+                continue
+            result.extend(coerce_messages([item]))
+        return result
 
     def _normalize_input_item(self, item: dict[str, Any]) -> dict[str, Any]:
         """Normalize an input item for the OpenAI Responses API.
@@ -361,18 +391,24 @@ class OpenAIProvider:
 
     def _to_response_result(self, raw: Any) -> ResponseResult:
         """Convert raw Responses API output to ResponseResult."""
-        outputs: list[ResponseOutputText | ResponseOutputFunctionCall] = []
-        for item in raw.output:
+        outputs: list[ResponseOutputMessage | ResponseOutputFunctionCall] = []
+        for idx, item in enumerate(raw.output):
             item_type = getattr(item, "type", None)
             if item_type == "message":
+                text_parts: list[TextContent] = []
                 for content_block in getattr(item, "content", []):
                     if getattr(content_block, "type", None) == "output_text":
-                        outputs.append(ResponseOutputText(text=content_block.text))
+                        text_parts.append(TextContent(text=content_block.text))
+                if text_parts:
+                    outputs.append(
+                        ResponseOutputMessage(content=text_parts)  # pyright: ignore[reportArgumentType]
+                    )
             elif item_type == "function_call":
                 args = getattr(item, "arguments", "{}")
+                call_id = getattr(item, "call_id", None) or f"call_{idx}"
                 outputs.append(
                     ResponseOutputFunctionCall(
-                        call_id=getattr(item, "call_id", None),
+                        call_id=call_id,
                         name=item.name,
                         arguments=json.loads(args) if isinstance(args, str) else args,
                     )
@@ -388,7 +424,7 @@ class OpenAIProvider:
 
         return ResponseResult(
             id=raw.id,
-            outputs=outputs,
+            outputs=outputs,  # pyright: ignore[reportArgumentType]
             model=getattr(raw, "model", None),
             usage=usage,
         )

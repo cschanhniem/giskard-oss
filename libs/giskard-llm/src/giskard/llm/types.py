@@ -1,12 +1,25 @@
-"""Response types for giskard-llm.
+"""Unified response and message types for giskard-llm.
 
-These mirror the OpenAI-style response shapes that litellm used,
-so existing code in giskard-agents can consume them with minimal changes.
+All types are Pydantic models with discriminated unions where appropriate.
+Messages, tools, content parts, tool calls, and response items follow an
+OpenAI-shaped canonical schema that providers translate to/from their own
+wire formats.
 """
 
-from typing import Any, Literal, Required, TypedDict
+from collections.abc import Callable
+from typing import Annotated, Any, Literal, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    Discriminator,
+    Field,
+    Tag,
+    ValidationError,
+    model_validator,
+)
+
+# -- Base model --------------------------------------------------
 
 
 class _BaseModel(BaseModel):
@@ -16,59 +29,242 @@ class _BaseModel(BaseModel):
         kwargs.setdefault("exclude_none", True)
         return super().model_dump(**kwargs)
 
+    def model_dump_json(self, **kwargs: Any) -> str:
+        kwargs.setdefault("exclude_none", True)
+        return super().model_dump_json(**kwargs)
 
-# -- Tool definition types (input side) ---------------------------------------
+
+# -- Discriminator helpers ---------------------------------------
+
+_UNKNOWN_TAG = "__unknown__"
 
 
-class FunctionDef(TypedDict):
-    """Schema for a function tool definition."""
+def _type_discriminator(known: set[str]) -> Callable[[Any], str]:
+    """Build a callable discriminator that routes known ``type`` values to their
+    concrete branch and everything else to the ``Unknown*`` fallback.
+
+    Pydantic's ``Field(discriminator=...)`` requires every variant's discriminator
+    field to be a ``Literal``. Our ``Unknown*`` branches intentionally accept any
+    string, so we use a callable ``Discriminator`` + ``Tag`` instead.
+    """
+
+    def _discriminate(value: Any) -> str:
+        if isinstance(value, dict):
+            t = value.get("type")
+        else:
+            t = getattr(value, "type", None)
+        return t if isinstance(t, str) and t in known else _UNKNOWN_TAG
+
+    return _discriminate
+
+
+# -- Tool definition types ---------------------------------------
+
+
+class FunctionDef(_BaseModel):
+    """Function schema without a redundant ``type`` field.
+
+    Used as the inner payload of :class:`FunctionToolDefinition` (the nested
+    OpenAI Chat Completions tool wire format).
+    """
 
     name: str
     description: str
     parameters: dict[str, Any]
 
 
-class ToolDef(TypedDict):
-    """OpenAI-format tool definition accepted by all providers."""
+class FunctionTool(_BaseModel):
+    """Flat function tool (type/name/description/parameters).
 
-    type: Literal["function"]
+    Mirrors the OpenAI Responses API tool wire format.
+    """
+
+    type: Literal["function"] = "function"
+    name: str
+    description: str
+    parameters: dict[str, Any]
+
+
+class FunctionToolDefinition(_BaseModel):
+    """Nested function tool definition ``{type, function: {name, description, parameters}}``.
+
+    Mirrors the OpenAI Chat Completions tool wire format.
+    """
+
+    type: Literal["function"] = "function"
     function: FunctionDef
 
 
-class FunctionCallOutput(TypedDict):
-    """Canonical format for feeding back a tool result to respond()."""
-
-    type: Literal["function_call_output"]
-    call_id: str
-    name: str
-    output: str
+class UnknownTool(_BaseModel, extra="allow"):
+    type: str
 
 
-# -- Tool call types (output side) --------------------------------------------
+Tool = Annotated[
+    Annotated[FunctionTool, Tag("function")]
+    | Annotated[UnknownTool, Tag(_UNKNOWN_TAG)],
+    Discriminator(_type_discriminator({"function"})),
+]
+
+# -- Tool call types ---------------------------------------
 
 
-class ToolCallFunction(_BaseModel):
+class Function(_BaseModel):
     name: str
     arguments: str
 
 
-class ToolCall(_BaseModel):
+class FunctionCall(_BaseModel):
+    type: Literal["function"] = "function"
     id: str
-    type: str = "function"
-    function: ToolCallFunction
+    function: Function
 
 
-# -- Chat Completion types -----------------------------------------------------
+class UnknownCall(_BaseModel, extra="allow"):
+    type: str
 
 
-class ChoiceMessage(_BaseModel):
-    role: str | None = None
-    content: str | None = None
+ToolCall = Annotated[
+    Annotated[FunctionCall, Tag("function")]
+    | Annotated[UnknownCall, Tag(_UNKNOWN_TAG)],
+    Discriminator(_type_discriminator({"function"})),
+]
+
+# -- Message content types ---------------------------------------
+
+
+class TextContent(_BaseModel):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class RefusalContent(_BaseModel):
+    type: Literal["refusal"] = "refusal"
+    text: str
+
+
+class UnknownContent(_BaseModel, extra="allow"):
+    type: str
+
+
+def _coerce_text_content_parts(
+    value: str | list[str | dict[str, Any]],
+) -> list[dict[str, Any]]:
+    def _coerce_part(part: str | dict[str, Any]) -> dict[str, Any]:
+        if isinstance(part, str):
+            return {"type": "text", "text": part}
+        return part
+
+    if isinstance(value, str):
+        return [_coerce_part(value)]
+
+    return [_coerce_part(part) for part in value]
+
+
+T = TypeVar("T", bound=BaseModel)
+ContentParts = Annotated[
+    list[T | str] | str, BeforeValidator(_coerce_text_content_parts)
+]
+
+InputContent = Annotated[
+    Annotated[TextContent, Tag("text")] | Annotated[UnknownContent, Tag(_UNKNOWN_TAG)],
+    Discriminator(_type_discriminator({"text"})),
+]
+OutputContent = Annotated[
+    Annotated[TextContent, Tag("text")]
+    | Annotated[RefusalContent, Tag("refusal")]
+    | Annotated[UnknownContent, Tag(_UNKNOWN_TAG)],
+    Discriminator(_type_discriminator({"text", "refusal"})),
+]
+
+# -- Message types ---------------------------------------
+
+
+class InputMessage(_BaseModel):
+    type: Literal["message"] = "message"
+    role: Literal["user"] = "user"
+    content: ContentParts[InputContent]
+    name: str | None = None
+
+
+class SystemMessage(_BaseModel):
+    role: Literal["system", "developer"] = "system"
+    content: ContentParts[TextContent]
+    name: str | None = None
+
+
+class AssistantMessage(_BaseModel):
+    role: Literal["assistant"] = "assistant"
+    content: ContentParts[OutputContent] | None = None
     tool_calls: list[ToolCall] | None = None
+    name: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_refusal(cls, data: Any) -> Any:
+        if not isinstance(data, dict) or "refusal" not in data:
+            return data
+
+        refusal = data.pop("refusal")
+        if refusal is None:
+            return data
+        if isinstance(refusal, str):
+            refusal = {"type": "refusal", "text": refusal}
+        else:
+            try:
+                refusal = RefusalContent.model_validate(refusal)
+            except ValidationError as e:
+                raise ValueError("Invalid refusal content") from e
+
+        if data.get("content") is not None and data.get("content") != []:
+            raise ValueError("Content and refusal cannot be mixed")
+
+        data["content"] = [refusal]
+        return data
+
+    @property
+    def text(self) -> str | None:
+        if self.content is None:
+            return None
+
+        texts = [part.text for part in self.content if isinstance(part, TextContent)]
+        return "\n".join(texts) if texts else None
+
+    @property
+    def refusal(self) -> str | None:
+        if self.content is None:
+            return None
+
+        refusals = [part for part in self.content if isinstance(part, RefusalContent)]
+        if not refusals:
+            return None
+
+        return "\n".join([refusal.text for refusal in refusals])
+
+
+class ToolMessage(_BaseModel):
+    role: Literal["tool"] = "tool"
+    tool_call_id: str | None = None
+    name: str | None = None
+    content: ContentParts[TextContent]
+
+
+class FunctionMessage(_BaseModel):
+    role: Literal["function"] = "function"
+    name: str
+    content: str | None = None
+
+
+Message = Annotated[
+    InputMessage | SystemMessage | AssistantMessage | ToolMessage | FunctionMessage,
+    Field(discriminator="role"),
+]
+
+
+# -- Choice types (Chat Completions shape) ---------------------
 
 
 class Choice(_BaseModel):
-    message: ChoiceMessage
+    message: AssistantMessage
     finish_reason: str | None = None
     index: int = 0
 
@@ -79,48 +275,39 @@ class Usage(_BaseModel):
     total_tokens: int = 0
 
 
-class CompletionResponse(_BaseModel):
+class ChatCompletion(_BaseModel):
+    id: str | None = None
     choices: list[Choice]
     model: str | None = None
     usage: Usage | None = None
 
 
-# -- Embedding types -----------------------------------------------------------
+# -- Response types (Responses API shape) ---------------------------------------
 
 
-class EmbeddingData(_BaseModel):
-    embedding: list[float]
-    index: int = 0
-
-
-class EmbeddingUsage(_BaseModel):
-    prompt_tokens: int = 0
-    total_tokens: int = 0
-
-
-class EmbeddingResponse(_BaseModel):
-    data: list[EmbeddingData] = Field(default_factory=list)
-    model: str | None = None
-    usage: EmbeddingUsage | None = None
-
-
-# -- Response / Interaction types (Responses API + Interactions API) -----------
-
-
-class ResponseOutputText(_BaseModel):
-    type: Literal["text"] = "text"
-    text: str
+class ResponseOutputMessage(_BaseModel):
+    type: Literal["message"] = "message"
+    role: Literal["assistant"] = "assistant"
+    content: ContentParts[OutputContent]
 
 
 class ResponseOutputFunctionCall(_BaseModel):
     type: Literal["function_call"] = "function_call"
-    call_id: str | None = None
+    call_id: str
     name: str
     arguments: dict[str, Any]
 
 
-# Plain assignment (not `type` statement) so isinstance(x, ResponseOutputItem) works at runtime.
-ResponseOutputItem = ResponseOutputText | ResponseOutputFunctionCall
+class ResponseOutputUnknown(_BaseModel, extra="allow"):
+    type: str
+
+
+ResponseOutputItem = Annotated[
+    Annotated[ResponseOutputMessage, Tag("message")]
+    | Annotated[ResponseOutputFunctionCall, Tag("function_call")]
+    | Annotated[ResponseOutputUnknown, Tag(_UNKNOWN_TAG)],
+    Discriminator(_type_discriminator({"message", "function_call"})),
+]
 
 
 class ResponseResult(_BaseModel):
@@ -131,23 +318,99 @@ class ResponseResult(_BaseModel):
 
     @property
     def output_text(self) -> str | None:
-        """Concatenate all text outputs, or None if there are none."""
-        texts = [o.text for o in self.outputs if isinstance(o, ResponseOutputText)]
-        return "\n".join(texts) if texts else None
+        if not self.outputs:
+            return None
+
+        texts = [
+            content.text
+            for output in self.outputs
+            if isinstance(output, ResponseOutputMessage)
+            for content in output.content
+            if isinstance(content, TextContent)
+        ]
+        if not texts:
+            return None
+        return "\n".join(texts)
 
     @property
     def function_calls(self) -> list[ResponseOutputFunctionCall]:
-        """Return all function-call outputs."""
-        return [o for o in self.outputs if isinstance(o, ResponseOutputFunctionCall)]
+        if not self.outputs:
+            return []
+
+        return [
+            call
+            for call in self.outputs
+            if isinstance(call, ResponseOutputFunctionCall)
+        ]
+
+    @property
+    def refusals(self) -> str | None:
+        if not self.outputs:
+            return None
+
+        texts = [
+            content.text
+            for output in self.outputs
+            if isinstance(output, ResponseOutputMessage)
+            for content in output.content
+            if isinstance(content, RefusalContent)
+        ]
+        if not texts:
+            return None
+        return "\n".join(texts)
 
 
-# -- Message types -------------------------------------------------------------
+# -- Embedding types ---------------------------------------
 
 
-class ChatMessage(TypedDict, total=False):
-    """Canonical input message format (OpenAI-shaped)."""
+class EmbeddingData(_BaseModel):
+    embedding: list[float]
+    index: int
 
-    role: Required[str]
-    content: str | None
-    tool_calls: list[ToolCall]
-    tool_call_id: str
+
+class EmbeddingUsage(_BaseModel):
+    prompt_tokens: int
+    total_tokens: int
+
+
+class EmbeddingResponse(_BaseModel):
+    data: list[EmbeddingData] = Field(default_factory=list)
+    model: str | None = None
+    usage: EmbeddingUsage | None = None
+
+
+# -- Helper functions ---------------------------------------
+
+
+def user(*content: InputContent | str, name: str | None = None) -> InputMessage:
+    return InputMessage(role="user", content=list(content), name=name)
+
+
+def system(*content: TextContent | str, name: str | None = None) -> SystemMessage:
+    return SystemMessage(role="system", content=list(content), name=name)
+
+
+def developer(*content: TextContent | str, name: str | None = None) -> SystemMessage:
+    return SystemMessage(role="developer", content=list(content), name=name)
+
+
+def assistant(
+    *content: OutputContent | str,
+    name: str | None = None,
+    tool_calls: list[ToolCall] | None = None,
+) -> AssistantMessage:
+    return AssistantMessage(
+        role="assistant", content=list(content), name=name, tool_calls=tool_calls
+    )
+
+
+def tool_calls(*tool_calls: ToolCall, name: str | None = None) -> AssistantMessage:
+    return AssistantMessage(tool_calls=list(tool_calls), name=name)
+
+
+def tool(
+    *content: TextContent | str, tool_call_id: str, name: str | None = None
+) -> ToolMessage:
+    return ToolMessage(
+        role="tool", content=list(content), tool_call_id=tool_call_id, name=name
+    )

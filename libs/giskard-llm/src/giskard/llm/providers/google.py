@@ -66,20 +66,23 @@ from ..errors import (
     ServerError,
 )
 from ..types import (
-    ChatMessage,
+    AssistantMessage,
+    ChatCompletion,
     Choice,
-    ChoiceMessage,
-    CompletionResponse,
     EmbeddingData,
     EmbeddingResponse,
+    Function,
+    FunctionCall,
+    FunctionTool,
+    FunctionToolDefinition,
+    Message,
     ResponseOutputFunctionCall,
-    ResponseOutputText,
+    ResponseOutputMessage,
     ResponseResult,
-    ToolCall,
-    ToolCallFunction,
-    ToolDef,
+    TextContent,
     Usage,
 )
+from ._coerce import coerce_completion_tools, coerce_messages, coerce_response_tools
 
 logger = logging.getLogger(__name__)
 
@@ -195,18 +198,20 @@ class GoogleProvider:
     async def complete(
         self,
         model: str,
-        messages: Sequence[ChatMessage],
+        messages: Sequence[Message | dict[str, Any]],
         *,
-        tools: list[ToolDef] | None = None,
+        tools: Sequence[FunctionToolDefinition | dict[str, Any]] | None = None,
         **params: Any,
-    ) -> CompletionResponse:
+    ) -> ChatCompletion:
         types = _import_genai_types()
 
-        self._validate_messages(messages)
-        if tools is not None:
-            params["tools"] = tools
-        contents = self._convert_messages(messages)
-        config = self._build_config(messages, params, types)
+        coerced_messages = coerce_messages(messages)
+        self._validate_messages(coerced_messages)
+        coerced_tools = coerce_completion_tools(tools)
+        if coerced_tools is not None:
+            params["tools"] = coerced_tools
+        contents = self._convert_messages(coerced_messages)
+        config = self._build_config(coerced_messages, params, types)
 
         try:
             raw = await self._client.aio.models.generate_content(
@@ -254,7 +259,7 @@ class GoogleProvider:
 
     # -- validation ------------------------------------------------------------
 
-    def _validate_messages(self, messages: Sequence[ChatMessage]) -> None:
+    def _validate_messages(self, messages: Sequence[dict[str, Any]]) -> None:
         if not messages:
             raise BadRequestError(400, "Messages list must not be empty.", PROVIDER)
         has_non_system = any(m.get("role") != "system" for m in messages)
@@ -275,7 +280,7 @@ class GoogleProvider:
     # -- helpers ---------------------------------------------------------------
 
     def _convert_messages(
-        self, messages: Sequence[ChatMessage]
+        self, messages: Sequence[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Convert OpenAI-format messages to Gemini content format."""
         # Build tool_call_id → function_name map from assistant tool_calls
@@ -325,7 +330,7 @@ class GoogleProvider:
         return contents
 
     def _build_config(
-        self, messages: Sequence[ChatMessage], params: dict[str, Any], types: Any
+        self, messages: Sequence[dict[str, Any]], params: dict[str, Any], types: Any
     ) -> Any:
         """Build a GenerateContentConfig from OpenAI-style params."""
         unknown = set(params) - KNOWN_COMPLETION_PARAMS
@@ -375,7 +380,7 @@ class GoogleProvider:
         )
 
     def _extract_system_instructions(
-        self, messages: Sequence[ChatMessage]
+        self, messages: Sequence[dict[str, Any]]
     ) -> list[str] | None:
         """Pull system messages out for use as system_instruction (list)."""
         parts = [
@@ -383,14 +388,14 @@ class GoogleProvider:
         ]
         return parts if parts else None
 
-    def _to_completion_response(self, raw: Any, model: str) -> CompletionResponse:
+    def _to_completion_response(self, raw: Any, model: str) -> ChatCompletion:
         choices: list[Choice] = []
         if not raw.candidates:
-            return CompletionResponse(choices=[], model=model)
+            return ChatCompletion(choices=[], model=model)
 
         for i, candidate in enumerate(raw.candidates):
-            content = None
-            tool_calls: list[ToolCall] | None = None
+            content: list[TextContent] | None = None
+            tool_calls: list[FunctionCall] | None = None
             finish_reason = "stop"
 
             if candidate.finish_reason:
@@ -404,18 +409,17 @@ class GoogleProvider:
                 )
 
             if candidate.content and candidate.content.parts:
-                text_parts = []
-                fc_list: list[ToolCall] = []
+                text_parts: list[str] = []
+                fc_list: list[FunctionCall] = []
                 for idx, part in enumerate(candidate.content.parts):
                     if part.text is not None:
                         text_parts.append(part.text)
                     elif part.function_call is not None:
                         fc = part.function_call
                         fc_list.append(
-                            ToolCall(
+                            FunctionCall(
                                 id=f"call_{idx}",
-                                type="function",
-                                function=ToolCallFunction(
+                                function=Function(
                                     name=fc.name,
                                     arguments=json.dumps(dict(fc.args))
                                     if fc.args
@@ -423,17 +427,18 @@ class GoogleProvider:
                                 ),
                             )
                         )
-                content = "\n".join(text_parts) if text_parts else None
+                content = (
+                    [TextContent(text="\n".join(text_parts))] if text_parts else None
+                )
                 if fc_list:
                     tool_calls = fc_list
                     finish_reason = "tool_calls"
 
             choices.append(
                 Choice(
-                    message=ChoiceMessage(
-                        role="assistant",
-                        content=content,
-                        tool_calls=tool_calls,
+                    message=AssistantMessage(
+                        content=content,  # pyright: ignore[reportArgumentType]
+                        tool_calls=tool_calls,  # pyright: ignore[reportArgumentType]
                     ),
                     finish_reason=finish_reason,
                     index=i,
@@ -448,7 +453,7 @@ class GoogleProvider:
                 total_tokens=raw.usage_metadata.total_token_count or 0,
             )
 
-        return CompletionResponse(choices=choices, model=model, usage=usage)
+        return ChatCompletion(choices=choices, model=model, usage=usage)
 
     def _to_embedding_response(self, raw: Any, model: str) -> EmbeddingResponse:
         data: list[EmbeddingData] = []
@@ -462,11 +467,11 @@ class GoogleProvider:
     async def respond(
         self,
         model: str,
-        input: str | list[dict[str, Any]],
+        input: str | list[Message | dict[str, Any]],
         *,
         instructions: str | None = None,
         previous_id: str | None = None,
-        tools: list[ToolDef] | None = None,
+        tools: Sequence[FunctionTool | dict[str, Any]] | None = None,
         **params: Any,
     ) -> ResponseResult:
         unknown = set(params) - KNOWN_RESPONSE_PARAMS
@@ -477,16 +482,23 @@ class GoogleProvider:
                 sorted(unknown),
             )
 
+        coerced_input: str | list[dict[str, Any]]
         if isinstance(input, list):
-            input = self._normalize_input_items(input)
+            coerced_input = self._normalize_input_items(
+                self._coerce_response_input(input)
+            )
+        else:
+            coerced_input = input
 
-        kwargs: dict[str, Any] = {"model": model, "input": input}
+        coerced_tools = coerce_response_tools(tools)
+
+        kwargs: dict[str, Any] = {"model": model, "input": coerced_input}
         if instructions is not None:
             kwargs["system_instruction"] = instructions
         if previous_id is not None:
             kwargs["previous_interaction_id"] = previous_id
-        if tools is not None:
-            kwargs["tools"] = [{"type": "function", **t["function"]} for t in tools]
+        if coerced_tools is not None:
+            kwargs["tools"] = coerced_tools
         if params.get("temperature") is not None:
             kwargs["generation_config"] = kwargs.get("generation_config", {})
             kwargs["generation_config"]["temperature"] = params["temperature"]
@@ -497,6 +509,18 @@ class GoogleProvider:
             self._map_error(e)
 
         return self._to_response_result(raw, model)
+
+    def _coerce_response_input(
+        self, items: list[Message | dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Coerce Responses-API input items (Messages or typed wire items)."""
+        result: list[dict[str, Any]] = []
+        for item in items:
+            if isinstance(item, dict) and "role" not in item and "type" in item:
+                result.append(item)
+                continue
+            result.extend(coerce_messages([item]))
+        return result
 
     def _normalize_input_items(
         self, items: list[dict[str, Any]]
@@ -563,15 +587,21 @@ class GoogleProvider:
         return item
 
     def _to_response_result(self, raw: Any, model: str) -> ResponseResult:
-        outputs: list[ResponseOutputText | ResponseOutputFunctionCall] = []
-        for item in getattr(raw, "outputs", []):
+        outputs: list[ResponseOutputMessage | ResponseOutputFunctionCall] = []
+        for idx, item in enumerate(getattr(raw, "outputs", [])):
             item_type = getattr(item, "type", None)
             if item_type == "text":
-                outputs.append(ResponseOutputText(text=item.text))
+                outputs.append(
+                    ResponseOutputMessage(content=[TextContent(text=item.text)])  # pyright: ignore[reportArgumentType]
+                )
             elif item_type == "function_call":
                 args = getattr(item, "arguments", {})
                 # Google returns "id" on function_call outputs, not "call_id"
-                call_id = getattr(item, "id", None) or getattr(item, "call_id", None)
+                call_id = (
+                    getattr(item, "id", None)
+                    or getattr(item, "call_id", None)
+                    or f"call_{idx}"
+                )
                 outputs.append(
                     ResponseOutputFunctionCall(
                         call_id=call_id,
@@ -593,7 +623,7 @@ class GoogleProvider:
 
         return ResponseResult(
             id=raw.id,
-            outputs=outputs,
+            outputs=outputs,  # pyright: ignore[reportArgumentType]
             model=model,
             usage=usage,
         )

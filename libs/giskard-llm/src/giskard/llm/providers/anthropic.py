@@ -62,16 +62,18 @@ from ..errors import (
     ServerError,
 )
 from ..types import (
-    ChatMessage,
+    AssistantMessage,
+    ChatCompletion,
     Choice,
-    ChoiceMessage,
-    CompletionResponse,
-    ToolCall,
-    ToolCallFunction,
-    ToolDef,
+    Function,
+    FunctionCall,
+    FunctionToolDefinition,
+    Message,
+    TextContent,
     Usage,
 )
 from ..utils import compact
+from ._coerce import coerce_completion_tools, coerce_messages
 
 logger = logging.getLogger(__name__)
 
@@ -160,16 +162,18 @@ class AnthropicProvider:
     async def complete(
         self,
         model: str,
-        messages: Sequence[ChatMessage],
+        messages: Sequence[Message | dict[str, Any]],
         *,
-        tools: list[ToolDef] | None = None,
+        tools: Sequence[FunctionToolDefinition | dict[str, Any]] | None = None,
         **params: Any,
-    ) -> CompletionResponse:
+    ) -> ChatCompletion:
         anthropic = _import_anthropic()
-        self._validate_messages(messages)
-        if tools is not None:
-            params["tools"] = tools
-        kwargs = self._build_completion_kwargs(model, messages, params)
+        coerced_messages = coerce_messages(messages)
+        self._validate_messages(coerced_messages)
+        coerced_tools = coerce_completion_tools(tools)
+        if coerced_tools is not None:
+            params["tools"] = coerced_tools
+        kwargs = self._build_completion_kwargs(model, coerced_messages, params)
 
         try:
             raw = await self._client.messages.create(**kwargs)
@@ -180,7 +184,7 @@ class AnthropicProvider:
 
     # -- validation ------------------------------------------------------------
 
-    def _validate_messages(self, messages: Sequence[ChatMessage]) -> None:
+    def _validate_messages(self, messages: Sequence[dict[str, Any]]) -> None:
         if not messages:
             raise BadRequestError(400, "Messages list must not be empty.", PROVIDER)
 
@@ -230,7 +234,7 @@ class AnthropicProvider:
     def _build_completion_kwargs(
         self,
         model: str,
-        messages: Sequence[ChatMessage],
+        messages: Sequence[dict[str, Any]],
         params: dict[str, Any],
     ) -> dict[str, Any]:
         """Build kwargs dict for the Anthropic Messages API."""
@@ -279,11 +283,11 @@ class AnthropicProvider:
         return kwargs
 
     def _split_system_messages(
-        self, messages: Sequence[ChatMessage]
-    ) -> tuple[list[str], list[ChatMessage]]:
+        self, messages: Sequence[dict[str, Any]]
+    ) -> tuple[list[str], list[dict[str, Any]]]:
         """Separate system messages from conversation messages."""
         system: list[str] = []
-        rest: list[ChatMessage] = []
+        rest: list[dict[str, Any]] = []
         for m in messages:
             if m.get("role") == "system":
                 system.append(m.get("content", "") or "")
@@ -292,7 +296,7 @@ class AnthropicProvider:
         return system, rest
 
     def _convert_messages(
-        self, messages: Sequence[ChatMessage]
+        self, messages: Sequence[dict[str, Any]]
     ) -> list[_AnthropicMessage]:
         """Convert OpenAI-format messages to Anthropic format."""
         result: list[_AnthropicMessage] = []
@@ -349,20 +353,19 @@ class AnthropicProvider:
             "input_schema": func.get("parameters", {}),
         }
 
-    def _to_completion_response(self, raw: Any) -> CompletionResponse:
-        """Convert raw SDK response to CompletionResponse."""
+    def _to_completion_response(self, raw: Any) -> ChatCompletion:
+        """Convert raw SDK response to ChatCompletion."""
         content_text: list[str] = []
-        tool_calls: list[ToolCall] = []
+        tool_calls: list[FunctionCall] = []
 
         for block in raw.content:
             if block.type == "text":
                 content_text.append(block.text)
             elif block.type == "tool_use":
                 tool_calls.append(
-                    ToolCall(
+                    FunctionCall(
                         id=block.id,
-                        type="function",
-                        function=ToolCallFunction(
+                        function=Function(
                             name=block.name,
                             arguments=json.dumps(block.input)
                             if isinstance(block.input, dict)
@@ -379,10 +382,12 @@ class AnthropicProvider:
         }
         finish_reason = finish_reason_map.get(raw.stop_reason, "stop")
 
-        message = ChoiceMessage(
-            role="assistant",
-            content="\n".join(content_text) if content_text else None,
-            tool_calls=tool_calls or None,
+        content: list[TextContent] | None = (
+            [TextContent(text="\n".join(content_text))] if content_text else None
+        )
+        message = AssistantMessage(
+            content=content,  # pyright: ignore[reportArgumentType]
+            tool_calls=tool_calls or None,  # pyright: ignore[reportArgumentType]
         )
 
         usage = None
@@ -393,7 +398,7 @@ class AnthropicProvider:
                 total_tokens=raw.usage.input_tokens + raw.usage.output_tokens,
             )
 
-        return CompletionResponse(
+        return ChatCompletion(
             choices=[Choice(message=message, finish_reason=finish_reason, index=0)],
             model=raw.model,
             usage=usage,

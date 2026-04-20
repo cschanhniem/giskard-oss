@@ -16,9 +16,9 @@ from giskard.llm.providers.base import (
 from giskard.llm.providers.google import GoogleProvider
 from giskard.llm.providers.openai import OpenAIProvider
 from giskard.llm.types import (
+    FunctionCall,
     ResponseOutputFunctionCall,
-    ResponseOutputText,
-    ToolCall,
+    ResponseOutputMessage,
 )
 
 # -- Helpers -------------------------------------------------------------------
@@ -153,7 +153,7 @@ async def test_openai_completion(mock_import):
     resp = await provider.complete(
         "gpt-4o", [{"role": "user", "content": "Hi"}], temperature=0.5
     )
-    assert resp.choices[0].message.content == "Hello world"
+    assert resp.choices[0].message.text == "Hello world"
     assert resp.choices[0].finish_reason == "stop"
     assert resp.model == "gpt-4o"
     assert resp.usage is not None
@@ -183,7 +183,7 @@ async def test_openai_completion_with_typed_tool_calls(mock_import):
     assert resp.choices[0].finish_reason == "tool_calls"
     tcs = resp.choices[0].message.tool_calls
     assert tcs is not None
-    assert isinstance(tcs[0], ToolCall)
+    assert isinstance(tcs[0], FunctionCall)
     assert tcs[0].function.name == "get_weather"
     assert tcs[0].function.arguments == '{"city": "Paris"}'
 
@@ -347,7 +347,7 @@ async def test_openai_multiple_system_works(mock_import):
             {"role": "user", "content": "Hi"},
         ],
     )
-    assert resp.choices[0].message.content == "Hello"
+    assert resp.choices[0].message.text == "Hello"
 
 
 # -- Anthropic message validation ----------------------------------------------
@@ -391,7 +391,7 @@ async def test_anthropic_validate_multi_system_with_merge(mock_import):
             {"role": "user", "content": "Hi"},
         ],
     )
-    assert resp.choices[0].message.content == "Hello"
+    assert resp.choices[0].message.text == "Hello"
 
 
 @patch("giskard.llm.providers.anthropic._import_anthropic")
@@ -424,8 +424,8 @@ async def test_openai_respond_text(mock_import):
     resp = await provider.respond("gpt-4o", "Hello")
     assert resp.id == "resp_001"
     assert len(resp.outputs) == 1
-    assert isinstance(resp.outputs[0], ResponseOutputText)
-    assert resp.outputs[0].text == "Hello world"
+    assert isinstance(resp.outputs[0], ResponseOutputMessage)
+    assert resp.outputs[0].content[0].text == "Hello world"  # pyright: ignore[reportAttributeAccessIssue]
     assert resp.output_text == "Hello world"
     assert resp.usage is not None
     assert resp.usage.prompt_tokens == 10
@@ -495,8 +495,8 @@ async def test_google_respond_text(mock_errors):
     resp = await provider.respond("gemini-2.0-flash", "Hello")
     assert resp.id == "int_001"
     assert len(resp.outputs) == 1
-    assert isinstance(resp.outputs[0], ResponseOutputText)
-    assert resp.outputs[0].text == "Bonjour"
+    assert isinstance(resp.outputs[0], ResponseOutputMessage)
+    assert resp.outputs[0].content[0].text == "Bonjour"  # pyright: ignore[reportAttributeAccessIssue]
 
 
 @patch("giskard.llm.providers.google._import_genai_errors")

@@ -1,9 +1,10 @@
 """Functional tests for behavior configuration via LLMClient.configure()."""
 
 import os
+from typing import Any
 
 import pytest
-from giskard.llm import ChatMessage, LLMClient
+from giskard.llm import LLMClient, Message
 from giskard.llm.errors import BadRequestError
 
 pytestmark = [pytest.mark.functional, pytest.mark.anthropic]
@@ -47,7 +48,7 @@ async def test_anthropic_relaxed_multi_system_merges():
             {"role": "user", "content": "Tell me something."},
         ],
     )
-    content = resp.choices[0].message.content or ""
+    content = resp.choices[0].message.text or ""
     assert "pineapple" in content.lower() and "mango" in content.lower()
 
 
@@ -66,7 +67,7 @@ async def test_both_aliases_coexist():
         merge_system=True,
     )
 
-    messages: list[ChatMessage] = [
+    messages: list[Message | dict[str, Any]] = [
         {"role": "system", "content": "A"},
         {"role": "system", "content": "B"},
         {"role": "user", "content": "Hi"},
@@ -76,4 +77,4 @@ async def test_both_aliases_coexist():
         await client.acompletion(f"strict/{_MODEL}", messages)
 
     resp = await client.acompletion(f"relaxed/{_MODEL}", messages)
-    assert resp.choices[0].message.content
+    assert resp.choices[0].message.text

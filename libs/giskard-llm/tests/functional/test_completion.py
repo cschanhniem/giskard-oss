@@ -10,7 +10,7 @@ import os
 import pytest
 from giskard.llm import LLMClient
 from giskard.llm.errors import BadRequestError
-from giskard.llm.types import ToolDef
+from giskard.llm.types import FunctionCall, FunctionToolDefinition
 from pydantic import BaseModel
 
 pytestmark = pytest.mark.functional
@@ -89,8 +89,8 @@ async def test_user_only(provider: str):
     resp = await client.acompletion(model, [{"role": "user", "content": "Say hello"}])
     assert len(resp.choices) > 0
     assert resp.choices[0].message.role == "assistant"
-    assert resp.choices[0].message.content
-    assert len(resp.choices[0].message.content.strip()) > 0
+    assert resp.choices[0].message.text
+    assert len(resp.choices[0].message.text.strip()) > 0
 
 
 @pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
@@ -115,8 +115,8 @@ async def test_system_user_keyword_injection(provider: str):
             {"role": "user", "content": "Tell me something."},
         ],
     )
-    assert resp.choices[0].message.content
-    assert "pineapple" in resp.choices[0].message.content.lower()
+    assert resp.choices[0].message.text
+    assert "pineapple" in resp.choices[0].message.text.lower()
 
 
 @pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
@@ -132,8 +132,8 @@ async def test_multi_turn(provider: str):
             {"role": "user", "content": "And what is 3+3?"},
         ],
     )
-    assert resp.choices[0].message.content
-    assert len(resp.choices[0].message.content.strip()) > 0
+    assert resp.choices[0].message.text
+    assert len(resp.choices[0].message.text.strip()) > 0
 
 
 @pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
@@ -147,21 +147,23 @@ async def test_empty_messages_raises(provider: str):
 # -- Tool call scenarios ------------------------------------------------------
 
 
-ADD_TOOL: ToolDef = {
-    "type": "function",
-    "function": {
-        "name": "add",
-        "description": "Add two numbers",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "a": {"type": "integer"},
-                "b": {"type": "integer"},
+ADD_TOOL: FunctionToolDefinition = FunctionToolDefinition.model_validate(
+    {
+        "type": "function",
+        "function": {
+            "name": "add",
+            "description": "Add two numbers",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "a": {"type": "integer"},
+                    "b": {"type": "integer"},
+                },
+                "required": ["a", "b"],
             },
-            "required": ["a", "b"],
         },
-    },
-}
+    }
+)
 
 
 @pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
@@ -177,6 +179,7 @@ async def test_tool_call(provider: str):
     assert choice.finish_reason == "tool_calls"
     assert choice.message.tool_calls
     tc = choice.message.tool_calls[0]
+    assert isinstance(tc, FunctionCall)
     assert tc.function.name == "add"
     args = tc.function.arguments
     assert "a" in args and "b" in args
@@ -194,6 +197,7 @@ async def test_tool_result_loop(provider: str):
     )
     assert resp1.choices[0].message.tool_calls is not None
     tc = resp1.choices[0].message.tool_calls[0]
+    assert isinstance(tc, FunctionCall)
 
     resp2 = await client.acompletion(
         model,
@@ -201,15 +205,15 @@ async def test_tool_result_loop(provider: str):
             {"role": "user", "content": "What is 2+2? Use the add tool."},
             {
                 "role": "assistant",
-                "content": resp1.choices[0].message.content,
-                "tool_calls": [tc.model_dump()],  # pyright: ignore[reportArgumentType]  # SDK expects serialized dicts
+                "content": resp1.choices[0].message.text,
+                "tool_calls": [tc.model_dump()],
             },
             {"role": "tool", "tool_call_id": tc.id, "content": "4"},
         ],
         tools=[ADD_TOOL],
     )
     assert resp2.choices[0].finish_reason == "stop"
-    assert resp2.choices[0].message.content
+    assert resp2.choices[0].message.text
 
 
 @pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
@@ -236,26 +240,28 @@ async def test_tool_result_loop_hardcoded(provider: str):
         },
         {"role": "tool", "tool_call_id": "call_0", "content": "4"},
     ]
-    resp = await client.acompletion(model, messages, tools=[ADD_TOOL])  # pyright: ignore[reportArgumentType]
+    resp = await client.acompletion(model, messages, tools=[ADD_TOOL])
     assert resp.choices[0].finish_reason == "stop"
-    assert resp.choices[0].message.content
+    assert resp.choices[0].message.text
 
 
-MULTIPLY_TOOL: ToolDef = {
-    "type": "function",
-    "function": {
-        "name": "multiply",
-        "description": "Multiply two numbers",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "a": {"type": "integer"},
-                "b": {"type": "integer"},
+MULTIPLY_TOOL: FunctionToolDefinition = FunctionToolDefinition.model_validate(
+    {
+        "type": "function",
+        "function": {
+            "name": "multiply",
+            "description": "Multiply two numbers",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "a": {"type": "integer"},
+                    "b": {"type": "integer"},
+                },
+                "required": ["a", "b"],
             },
-            "required": ["a", "b"],
         },
-    },
-}
+    }
+)
 
 
 @pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
@@ -293,9 +299,9 @@ async def test_tool_result_loop_parallel(provider: str):
         {"role": "tool", "tool_call_id": "call_0", "content": "4"},
         {"role": "tool", "tool_call_id": "call_1", "content": "12"},
     ]
-    resp = await client.acompletion(model, messages, tools=[ADD_TOOL, MULTIPLY_TOOL])  # pyright: ignore[reportArgumentType]
+    resp = await client.acompletion(model, messages, tools=[ADD_TOOL, MULTIPLY_TOOL])
     assert resp.choices[0].finish_reason == "stop"
-    assert resp.choices[0].message.content
+    assert resp.choices[0].message.text
 
 
 # -- Usage scenarios -----------------------------------------------------------
@@ -332,8 +338,8 @@ async def test_response_format(provider: str):
         response_format=ColorModel,
     )
     choice = resp.choices[0]
-    assert choice.message.content
-    raw_json = choice.message.content
+    assert choice.message.text
+    raw_json = choice.message.text
 
     parsed = json.loads(raw_json)
     assert "name" in parsed
@@ -348,7 +354,7 @@ async def test_configure_explicit(provider: str):
     """Explicit configure() -> completion succeeds."""
     client, model = _make_client(provider)
     resp = await client.acompletion(model, [{"role": "user", "content": "Say hi"}])
-    assert resp.choices[0].message.content
+    assert resp.choices[0].message.text
 
 
 # -- Error handling scenarios --------------------------------------------------

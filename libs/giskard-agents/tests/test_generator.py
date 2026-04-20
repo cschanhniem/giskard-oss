@@ -10,24 +10,24 @@ from giskard.agents.generators.giskard_llm_generator import GiskardLLMGenerator
 from giskard.agents.tools import Function, Tool, ToolCall, tool
 from giskard.agents.workflow import ChatWorkflow
 from giskard.core import MinIntervalRateLimiter
-from giskard.llm import Choice, ChoiceMessage, CompletionResponse
+from giskard.llm import AssistantMessage, ChatCompletion, Choice, TextContent
 from pydantic import Field
 
 
 @pytest.fixture
 def mock_response():
-    return CompletionResponse(
+    return ChatCompletion(
         choices=[
             Choice(
                 finish_reason="stop",
-                message=ChoiceMessage(role="assistant", content="Mock response"),
+                message=AssistantMessage(content=[TextContent(text="Mock response")]),
             )
         ]
     )
 
 
 async def test_generator_completion_with_mock(
-    generator: GiskardLLMGenerator, mock_response: CompletionResponse
+    generator: GiskardLLMGenerator, mock_response: ChatCompletion
 ):
     with patch(
         "giskard.agents.generators.giskard_llm_generator.acompletion",
@@ -86,7 +86,7 @@ async def test_generator_chat(generator: GiskardLLMGenerator):
     assert isinstance(chats[2], Chat)
 
 
-async def test_generator_gets_rate_limiter(mock_response: CompletionResponse):
+async def test_generator_gets_rate_limiter(mock_response: ChatCompletion):
     rate_limiter = MinIntervalRateLimiter.from_rpm(60, max_concurrent=1)
     generator = GiskardLLMGenerator(
         model="test-model",
@@ -112,7 +112,7 @@ async def test_generator_gets_rate_limiter(mock_response: CompletionResponse):
     assert elapsed_time < 3
 
 
-async def test_generator_without_rate_limiter(mock_response: CompletionResponse):
+async def test_generator_without_rate_limiter(mock_response: ChatCompletion):
     generator = GiskardLLMGenerator(model="test-model")
     with patch(
         "giskard.agents.generators.giskard_llm_generator.acompletion",
@@ -170,7 +170,7 @@ def test_generator_with_params_and_rate_limiter():
     assert generator.params.max_tokens is None
 
 
-async def test_generator_with_params_overwrite(mock_response: CompletionResponse):
+async def test_generator_with_params_overwrite(mock_response: ChatCompletion):
     # ARRANGE: Create a generator with base parameters.
     generator = GiskardLLMGenerator(model="test-model").with_params(
         temperature=0.5,  # This should be preserved.

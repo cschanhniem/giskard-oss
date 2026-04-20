@@ -1,11 +1,11 @@
 from typing import Any, cast, override
 
-from giskard.llm import CompletionResponse, acompletion, should_retry
-from giskard.llm.types import ChatMessage
+from giskard import llm
+from giskard.llm import acompletion, should_retry
 from pydantic import Field
 
 from ..chat import Message
-from ..tools import Tool
+from ..tools import Function, Tool, ToolCall
 from ._types import FinishReason, GenerationParams, Response
 from .base import BaseGenerator
 from .middleware import CompletionMiddleware, RetryMiddleware, RetryPolicy
@@ -49,20 +49,33 @@ class GiskardLLMGenerator(BaseGenerator):
             for t in tools
         ]
 
-    def _serialize_messages(self, messages: list[Message]) -> list[ChatMessage]:
-        """Convert ``Message`` objects to the wire dict format."""
-        return cast(
-            list[ChatMessage],
-            [
-                m.model_dump(include={"role", "content", "tool_calls", "tool_call_id"})
-                for m in messages
-            ],
-        )
+    def _serialize_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
+        """Convert internal ``Message`` objects to the wire dict format accepted by giskard-llm."""
+        return [
+            m.model_dump(include={"role", "content", "tool_calls", "tool_call_id"})
+            for m in messages
+        ]
 
-    def _deserialize_response(self, raw: Any) -> Message:
-        """Convert a response message object into an internal ``Message``."""
-        data = raw if isinstance(raw, dict) else raw.model_dump()
-        return Message.model_validate(data)
+    def _deserialize_response(self, message: llm.AssistantMessage) -> Message:
+        """Convert a giskard-llm ``AssistantMessage`` into an internal ``Message``."""
+        tool_calls: list[ToolCall] | None = None
+        if message.tool_calls:
+            tool_calls = [
+                ToolCall(
+                    id=tc.id,
+                    function=Function(
+                        name=tc.function.name, arguments=tc.function.arguments
+                    ),
+                )
+                for tc in message.tool_calls
+                if isinstance(tc, llm.FunctionCall)
+            ] or None
+
+        return Message(
+            role="assistant",
+            content=message.text,
+            tool_calls=tool_calls,
+        )
 
     @override
     async def _call_model(
@@ -79,7 +92,7 @@ class GiskardLLMGenerator(BaseGenerator):
         if metadata:
             wire_params["metadata"] = metadata
 
-        raw: CompletionResponse = await acompletion(
+        raw: llm.ChatCompletion = await acompletion(
             messages=wire_messages, model=self.model, **wire_params
         )
 

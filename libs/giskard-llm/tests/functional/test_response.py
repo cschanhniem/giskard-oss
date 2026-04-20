@@ -9,7 +9,11 @@ import os
 import pytest
 from giskard.llm import LLMClient
 from giskard.llm.errors import AuthenticationError, LLMError, UnsupportedOperationError
-from giskard.llm.types import ResponseOutputFunctionCall, ResponseOutputText, ToolDef
+from giskard.llm.types import (
+    FunctionTool,
+    ResponseOutputFunctionCall,
+    ResponseOutputMessage,
+)
 
 pytestmark = pytest.mark.functional
 
@@ -75,21 +79,18 @@ async def test_respond_with_instructions(provider: str):
 
 # -- Tool call scenario -------------------------------------------------------
 
-_ADD_TOOL: ToolDef = {
-    "type": "function",
-    "function": {
-        "name": "add",
-        "description": "Add two numbers",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "a": {"type": "integer"},
-                "b": {"type": "integer"},
-            },
-            "required": ["a", "b"],
+_ADD_TOOL: FunctionTool = FunctionTool(
+    name="add",
+    description="Add two numbers",
+    parameters={
+        "type": "object",
+        "properties": {
+            "a": {"type": "integer"},
+            "b": {"type": "integer"},
         },
+        "required": ["a", "b"],
     },
-}
+)
 
 
 @pytest.mark.parametrize("provider", _PROVIDER_PARAMS)
@@ -140,9 +141,10 @@ async def test_respond_tool_roundtrip(provider: str):
             },
         ],
     )
-    text_outputs = [o for o in resp2.outputs if isinstance(o, ResponseOutputText)]
+    text_outputs = [o for o in resp2.outputs if isinstance(o, ResponseOutputMessage)]
     assert len(text_outputs) > 0
-    assert text_outputs[0].text.strip()
+    assert resp2.output_text is not None
+    assert resp2.output_text.strip()
 
 
 # -- Stateful turn scenario ---------------------------------------------------

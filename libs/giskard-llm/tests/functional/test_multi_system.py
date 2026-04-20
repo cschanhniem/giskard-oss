@@ -1,15 +1,16 @@
 """Functional tests for multi-system message handling per provider."""
 
 import os
+from typing import Any
 
 import pytest
-from giskard.llm import ChatMessage, LLMClient
+from giskard.llm import LLMClient, Message
 from giskard.llm.errors import BadRequestError
 
 pytestmark = pytest.mark.functional
 
 
-_MULTI_SYSTEM_MESSAGES: list[ChatMessage] = [
+_MULTI_SYSTEM_MESSAGES: list[Message | dict[str, Any]] = [
     {"role": "system", "content": "Always include the word PINEAPPLE."},
     {"role": "system", "content": "Always include the word MANGO."},
     {"role": "user", "content": "Tell me something."},
@@ -27,7 +28,7 @@ async def test_openai_multi_system_works():
     )
     model = os.getenv("TEST_OPENAI_MODEL", "openai/gpt-4.1-nano")
     resp = await client.acompletion(model, _MULTI_SYSTEM_MESSAGES)
-    assert resp.choices[0].message.content
+    assert resp.choices[0].message.text
 
 
 @pytest.mark.google
@@ -41,7 +42,7 @@ async def test_google_multi_system_works():
     )
     model = os.getenv("TEST_GOOGLE_MODEL", "google/gemini-2.0-flash")
     resp = await client.acompletion(model, _MULTI_SYSTEM_MESSAGES)
-    assert resp.choices[0].message.content
+    assert resp.choices[0].message.text
 
 
 @pytest.mark.anthropic
@@ -71,7 +72,7 @@ async def test_azure_multi_system_works():
     )
     model = os.getenv("TEST_AZURE_MODEL", "azure/gpt-4.1-nano")
     resp = await client.acompletion(model, _MULTI_SYSTEM_MESSAGES)
-    assert resp.choices[0].message.content
+    assert resp.choices[0].message.text
 
 
 @pytest.mark.azure_ai
@@ -86,4 +87,4 @@ async def test_azure_ai_multi_system_works():
     )
     model = os.getenv("TEST_AZURE_AI_MODEL", "azure_ai/gpt-4.1-nano")
     resp = await client.acompletion(model, _MULTI_SYSTEM_MESSAGES)
-    assert resp.choices[0].message.content
+    assert resp.choices[0].message.text
