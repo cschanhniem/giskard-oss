@@ -144,10 +144,28 @@ class ResponseResult(_BaseModel):
 # -- Message types -------------------------------------------------------------
 
 
+class TextContent(TypedDict, total=False):
+    type: Required[Literal["text"]]
+    text: Required[str]
+
+
+class ImageURL(TypedDict, total=False):
+    url: Required[str]
+    detail: Literal["auto", "low", "high"]
+
+
+class ImageURLContent(TypedDict, total=False):
+    type: Required[Literal["image_url"]]
+    image_url: Required[ImageURL]
+
+
+Content = TextContent | ImageURLContent
+
+
 class ChatMessage(TypedDict, total=False):
     """Canonical input message format (OpenAI-shaped)."""
 
     role: Required[str]
-    content: str | None
+    content: str | list[Content] | None
     tool_calls: list[ToolCall]
     tool_call_id: str

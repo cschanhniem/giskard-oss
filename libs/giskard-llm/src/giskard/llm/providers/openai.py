@@ -44,7 +44,7 @@ from collections.abc import Sequence
 from typing import Any, NoReturn
 
 from pydantic import BaseModel
-
+from pydantic import ValidationError
 from ..errors import (
     AuthenticationError,
     BadRequestError,
@@ -54,24 +54,10 @@ from ..errors import (
     RateLimitError,
     ServerError,
 )
-from ..types import (
-    ChatMessage,
-    Choice,
-    ChoiceMessage,
-    CompletionResponse,
-    EmbeddingData,
-    EmbeddingResponse,
-    EmbeddingUsage,
-    ResponseOutputFunctionCall,
-    ResponseOutputText,
-    ResponseResult,
-    ToolCall,
-    ToolCallFunction,
-    ToolDef,
-    Usage,
-)
-from ..utils import compact
+from ..types._openai_chat import ChatParameters
 
+from ..utils import compact
+from ..types.chat import ChatMessage, FunctionTool, CompletionResponse
 logger = logging.getLogger(__name__)
 
 PROVIDER = "openai"
@@ -135,20 +121,37 @@ class OpenAIProvider:
         model: str,
         messages: Sequence[ChatMessage],
         *,
-        tools: list[ToolDef] | None = None,
+        tools: list[FunctionTool] | None = None,
         **params: Any,
     ) -> CompletionResponse:
         openai = _import_openai()
-        self._validate_messages(messages)
-        if tools is not None:
-            params["tools"] = tools
-        kwargs = self._build_completion_kwargs(model, messages, params)
+
+        try: 
+            chat_parameters = ChatParameters.model_validate(
+                {
+                    "messages": messages,
+                    "tools": tools,
+                    **params
+                }
+            )
+        except ValidationError as e:
+            raise BadRequestError(400, str(e), self._PROVIDER) from e
+        
+        kwargs = chat_parameters.model_dump()
+        dropped_keys = set(params) - set(kwargs)
+        if dropped_keys:
+            logger.warning(
+                "%s provider: ignoring unknown completion params: %s",
+                self._PROVIDER,
+                sorted(dropped_keys),
+            )
+
         try:
             raw = await self._client.chat.completions.create(**kwargs)
         except openai.APIError as e:
             self._map_error(e)
 
-        return self._to_completion_response(raw)
+        return CompletionResponse.model_validate(raw.model_dump())
 
     async def embed(
         self,
@@ -175,121 +178,7 @@ class OpenAIProvider:
 
         return self._to_embedding_response(raw)
 
-    # -- validation ------------------------------------------------------------
-
-    def _validate_messages(self, messages: Sequence[ChatMessage]) -> None:
-        if not messages:
-            raise BadRequestError(
-                400, "Messages list must not be empty.", self._PROVIDER
-            )
-        has_non_system = any(m.get("role") != "system" for m in messages)
-        if not has_non_system:
-            raise BadRequestError(
-                400,
-                "Messages must contain at least one non-system message.",
-                self._PROVIDER,
-            )
-        for m in messages:
-            if m.get("role") == "tool" and not m.get("tool_call_id"):
-                raise BadRequestError(
-                    400, "Tool messages must have a tool_call_id.", self._PROVIDER
-                )
-            if m.get("role") == "system" and not (m.get("content") or "").strip():
-                raise BadRequestError(
-                    400, "System messages must have non-empty content.", self._PROVIDER
-                )
-
     # -- helpers ---------------------------------------------------------------
-
-    def _build_completion_kwargs(
-        self,
-        model: str,
-        messages: Sequence[ChatMessage],
-        params: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Build kwargs dict for the Chat Completions API."""
-        unknown = set(params) - KNOWN_COMPLETION_PARAMS
-        if unknown:
-            logger.warning(
-                "%s provider: ignoring unknown completion params: %s",
-                self._PROVIDER,
-                sorted(unknown),
-            )
-
-        kwargs: dict[str, Any] = {"model": model, "messages": messages}
-
-        if params.get("temperature") is not None:
-            kwargs["temperature"] = params["temperature"]
-        if params.get("max_tokens") is not None:
-            kwargs["max_tokens"] = params["max_tokens"]
-        if params.get("timeout") is not None:
-            kwargs["timeout"] = params["timeout"]
-        if tools := params.get("tools"):
-            kwargs["tools"] = tools
-        if metadata := params.get("metadata"):
-            kwargs["metadata"] = metadata
-
-        response_format = params.get("response_format")
-        if response_format is not None:
-            if isinstance(response_format, type) and issubclass(
-                response_format, BaseModel
-            ):
-                schema = response_format.model_json_schema()
-                schema["additionalProperties"] = False
-                response_format = {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": response_format.__name__,
-                        "strict": True,
-                        "schema": schema,
-                    },
-                }
-            kwargs["response_format"] = response_format
-
-        return kwargs
-
-    def _to_completion_response(self, raw: Any) -> CompletionResponse:
-        """Convert raw SDK response to CompletionResponse."""
-        choices = []
-        for c in raw.choices:
-            tool_calls = None
-            if c.message.tool_calls:
-                tool_calls = [
-                    ToolCall(
-                        id=tc.id,
-                        type=tc.type,
-                        function=ToolCallFunction(
-                            name=tc.function.name,
-                            arguments=tc.function.arguments,
-                        ),
-                    )
-                    for tc in c.message.tool_calls
-                ]
-            choices.append(
-                Choice(
-                    message=ChoiceMessage(
-                        role=c.message.role,
-                        content=c.message.content,
-                        tool_calls=tool_calls,
-                    ),
-                    finish_reason=c.finish_reason,
-                    index=c.index,
-                )
-            )
-
-        usage = None
-        if raw.usage:
-            usage = Usage(
-                prompt_tokens=raw.usage.prompt_tokens,
-                completion_tokens=raw.usage.completion_tokens,
-                total_tokens=raw.usage.total_tokens,
-            )
-
-        return CompletionResponse(
-            choices=choices,
-            model=raw.model,
-            usage=usage,
-        )
 
     def _to_embedding_response(self, raw: Any) -> EmbeddingResponse:
         """Convert raw SDK response to EmbeddingResponse."""
@@ -314,7 +203,7 @@ class OpenAIProvider:
         *,
         instructions: str | None = None,
         previous_id: str | None = None,
-        tools: list[ToolDef] | None = None,
+        tools: list[FunctionTool] | None = None,
         **params: Any,
     ) -> ResponseResult:
         unknown = set(params) - KNOWN_RESPONSE_PARAMS
