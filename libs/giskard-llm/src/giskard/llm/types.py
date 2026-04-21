@@ -229,6 +229,8 @@ class AssistantMessage(_BaseModel):
         if not isinstance(data, dict) or "refusal" not in data:
             return data
 
+        # Copy the data to avoid modifying the original
+        data = {**data}
         refusal = data.pop("refusal")
         if refusal is None:
             return data

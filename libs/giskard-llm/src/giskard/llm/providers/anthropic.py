@@ -294,26 +294,22 @@ class AnthropicProvider:
         return kwargs
 
     def _split_system_messages(
-        self, messages: Sequence[Message | dict[str, Any]]
+        self, messages: Sequence[Message]
     ) -> tuple[list[str], list[Message]]:
         """Separate system messages from conversation messages."""
-        validated_messages = validate_messages(*messages)
         system: list[str] = []
         rest: list[Message] = []
-        for message in validated_messages:
+        for message in messages:
             if isinstance(message, SystemMessage):
                 system.append(message.text or "")
             else:
                 rest.append(message)
         return system, rest
 
-    def _convert_messages(
-        self, messages: Sequence[Message | dict[str, Any]]
-    ) -> list[_AnthropicMessage]:
+    def _convert_messages(self, messages: Sequence[Message]) -> list[_AnthropicMessage]:
         """Convert OpenAI-format messages to Anthropic format."""
-        validated_messages = validate_messages(*messages)
         result: list[_AnthropicMessage] = []
-        for message in validated_messages:
+        for message in messages:
             if isinstance(message, ToolMessage):
                 block: _ToolResultContent = {
                     "type": "tool_result",

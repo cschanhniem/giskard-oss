@@ -63,6 +63,7 @@ from ..types import (
     EmbeddingUsage,
     Function,
     FunctionCall,
+    FunctionTool,
     Message,
     OutputContent,
     ResponseOutputFunctionCall,
@@ -145,7 +146,7 @@ class OpenAIProvider:
         model: str,
         messages: Sequence[Message | dict[str, Any]],
         *,
-        tools: Sequence[ToolInput] | None = None,
+        tools: Sequence[FunctionTool | dict[str, Any]] | None = None,
         **params: Any,
     ) -> ChatCompletion:
         openai = _import_openai()
