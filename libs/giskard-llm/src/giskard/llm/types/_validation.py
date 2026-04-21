@@ -1,7 +1,6 @@
 from typing import Annotated, Any, TypeVar
 
-from pydantic import AfterValidator, BeforeValidator
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel, BeforeValidator
 
 
 def _not_empty_str(v: str) -> str:
@@ -25,6 +24,7 @@ T = TypeVar("T")
 
 NotEmptyList = Annotated[list[T], AfterValidator(_not_empty_list)]
 
+
 def _coerce_to_json_schema(v: Any) -> Any:
     if isinstance(v, type) and issubclass(v, BaseModel):
         schema = v.model_json_schema()
@@ -39,5 +39,6 @@ def _coerce_to_json_schema(v: Any) -> Any:
         }
 
     return v
+
 
 JsonSchema = Annotated[dict[str, Any], BeforeValidator(_coerce_to_json_schema)]

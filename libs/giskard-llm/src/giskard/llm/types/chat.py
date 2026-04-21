@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 # -- Tool types -------------------------------------------------------
 
+
 class FunctionDefinition(TypedDict, total=False):
     name: Required[str]
     description: str
@@ -14,6 +15,7 @@ class FunctionDefinition(TypedDict, total=False):
 class FunctionTool(TypedDict, total=False):
     type: Required[Literal["function"]]
     function: Required[FunctionDefinition]
+
 
 class Function(TypedDict, total=False):
     name: Required[str]
@@ -70,18 +72,22 @@ class ToolMessage(TypedDict, total=False):
     content: Required[str | list[TextContent]]
     tool_call_id: Required[str]
 
+
 ChatMessage = SystemMessage | UserMessage | AssistantMessage | ToolMessage
 
 # -- Chat Completion types -----------------------------------------------------
+
 
 class CompletionFunction(BaseModel, extra="allow"):
     name: str
     arguments: dict[str, Any]
 
+
 class CompletionFunctionToolCall(BaseModel, extra="allow"):
     type: Literal["function"] = "function"
     id: str
     function: CompletionFunction
+
 
 class CompletionMessage(BaseModel, extra="allow"):
     role: str | None = None

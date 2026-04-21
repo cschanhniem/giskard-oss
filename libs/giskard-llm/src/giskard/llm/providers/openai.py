@@ -38,13 +38,12 @@ Provider-specific kwargs:
 
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false, reportImplicitRelativeImport=false
 
-import json
 import logging
 from collections.abc import Sequence
 from typing import Any, NoReturn
 
-from pydantic import BaseModel
 from pydantic import ValidationError
+
 from ..errors import (
     AuthenticationError,
     BadRequestError,
@@ -54,19 +53,24 @@ from ..errors import (
     RateLimitError,
     ServerError,
 )
+from ..types import (
+    ChatMessage,
+    CompletionResponse,
+    EasyInputMessage,
+    EmbeddingResponse,
+    FunctionTool,
+    ResponseResult,
+)
 from ..types._openai_chat import ChatParameters
-
+from ..types._openai_embedding import EmbeddingParameters
+from ..types._openai_reponse import ResponseParameters
 from ..utils import compact
-from ..types.chat import ChatMessage, FunctionTool, CompletionResponse
+
 logger = logging.getLogger(__name__)
 
 PROVIDER = "openai"
 
-KNOWN_COMPLETION_PARAMS = frozenset(
-    {"temperature", "max_tokens", "timeout", "tools", "response_format", "metadata"}
-)
 KNOWN_EMBEDDING_PARAMS = frozenset({"dimensions"})
-KNOWN_RESPONSE_PARAMS = frozenset({"temperature", "max_tokens"})
 
 
 def _import_openai() -> Any:
@@ -126,18 +130,14 @@ class OpenAIProvider:
     ) -> CompletionResponse:
         openai = _import_openai()
 
-        try: 
+        try:
             chat_parameters = ChatParameters.model_validate(
-                {
-                    "messages": messages,
-                    "tools": tools,
-                    **params
-                }
+                {"model": model, "messages": messages, "tools": tools, **params}
             )
         except ValidationError as e:
             raise BadRequestError(400, str(e), self._PROVIDER) from e
-        
-        kwargs = chat_parameters.model_dump()
+
+        kwargs = chat_parameters.model_dump(exclude_none=True)
         dropped_keys = set(params) - set(kwargs)
         if dropped_keys:
             logger.warning(
@@ -159,125 +159,70 @@ class OpenAIProvider:
         input: list[str],
         **params: Any,
     ) -> EmbeddingResponse:
-        unknown = set(params) - KNOWN_EMBEDDING_PARAMS
-        if unknown:
+        try:
+            embedding_parameters = EmbeddingParameters.model_validate(
+                {"model": model, "input": input, **params}
+            )
+        except ValidationError as e:
+            raise BadRequestError(400, str(e), self._PROVIDER) from e
+
+        kwargs = embedding_parameters.model_dump(exclude_none=True)
+        dropped_keys = set(params) - set(kwargs)
+        if dropped_keys:
             logger.warning(
                 "%s provider: ignoring unknown embedding params: %s",
                 self._PROVIDER,
-                sorted(unknown),
+                sorted(dropped_keys),
             )
 
         openai = _import_openai()
-        kwargs: dict[str, Any] = {"model": model, "input": input}
-        if (dimensions := params.get("dimensions")) is not None:
-            kwargs["dimensions"] = dimensions
         try:
             raw = await self._client.embeddings.create(**kwargs)
         except openai.APIError as e:
             self._map_error(e)
 
-        return self._to_embedding_response(raw)
-
-    # -- helpers ---------------------------------------------------------------
-
-    def _to_embedding_response(self, raw: Any) -> EmbeddingResponse:
-        """Convert raw SDK response to EmbeddingResponse."""
-        data = [
-            EmbeddingData(embedding=item.embedding, index=item.index)
-            for item in raw.data
-        ]
-        usage = None
-        if raw.usage:
-            usage = EmbeddingUsage(
-                prompt_tokens=raw.usage.prompt_tokens,
-                total_tokens=raw.usage.total_tokens,
-            )
-        return EmbeddingResponse(data=data, model=raw.model, usage=usage)
+        return EmbeddingResponse.model_validate(raw.model_dump())
 
     # -- Responses API ---------------------------------------------------------
 
     async def respond(
         self,
         model: str,
-        input: str | list[dict[str, Any]],
+        input: str | list[EasyInputMessage],
         *,
         instructions: str | None = None,
         previous_id: str | None = None,
         tools: list[FunctionTool] | None = None,
         **params: Any,
     ) -> ResponseResult:
-        unknown = set(params) - KNOWN_RESPONSE_PARAMS
-        if unknown:
+        openai = _import_openai()
+
+        try:
+            response_parameters = ResponseParameters.model_validate(
+                {
+                    "model": model,
+                    "input": input,
+                    "instructions": instructions,
+                    "previous_response_id": previous_id,
+                    "tools": tools,
+                    **params,
+                }
+            )
+        except ValidationError as e:
+            raise BadRequestError(400, str(e), self._PROVIDER) from e
+
+        kwargs = response_parameters.model_dump(exclude_none=True)
+        dropped_keys = set(params) - set(kwargs)
+        if dropped_keys:
             logger.warning(
                 "%s provider: ignoring unknown response params: %s",
                 self._PROVIDER,
-                sorted(unknown),
+                sorted(dropped_keys),
             )
-
-        openai = _import_openai()
-        if isinstance(input, list):
-            input = [self._normalize_input_item(item) for item in input]
-        kwargs: dict[str, Any] = {"model": model, "input": input}
-        if instructions is not None:
-            kwargs["instructions"] = instructions
-        if previous_id is not None:
-            kwargs["previous_response_id"] = previous_id
-        if tools is not None:
-            kwargs["tools"] = [{"type": "function", **t["function"]} for t in tools]
-        if params.get("temperature") is not None:
-            kwargs["temperature"] = params["temperature"]
-        if params.get("max_tokens") is not None:
-            kwargs["max_output_tokens"] = params["max_tokens"]
 
         try:
             raw = await self._client.responses.create(**kwargs)
         except openai.APIError as e:
             self._map_error(e)
 
-        return self._to_response_result(raw)
-
-    def _normalize_input_item(self, item: dict[str, Any]) -> dict[str, Any]:
-        """Normalize an input item for the OpenAI Responses API.
-
-        Ensures ``function_call`` items have ``arguments`` as a JSON string
-        (OpenAI rejects dict values).
-        """
-        if item.get("type") == "function_call" and isinstance(
-            item.get("arguments"), dict
-        ):
-            return {**item, "arguments": json.dumps(item["arguments"])}
-        return item
-
-    def _to_response_result(self, raw: Any) -> ResponseResult:
-        """Convert raw Responses API output to ResponseResult."""
-        outputs: list[ResponseOutputText | ResponseOutputFunctionCall] = []
-        for item in raw.output:
-            item_type = getattr(item, "type", None)
-            if item_type == "message":
-                for content_block in getattr(item, "content", []):
-                    if getattr(content_block, "type", None) == "output_text":
-                        outputs.append(ResponseOutputText(text=content_block.text))
-            elif item_type == "function_call":
-                args = getattr(item, "arguments", "{}")
-                outputs.append(
-                    ResponseOutputFunctionCall(
-                        call_id=getattr(item, "call_id", None),
-                        name=item.name,
-                        arguments=json.loads(args) if isinstance(args, str) else args,
-                    )
-                )
-
-        usage = None
-        if raw.usage:
-            usage = Usage(
-                prompt_tokens=getattr(raw.usage, "input_tokens", 0),
-                completion_tokens=getattr(raw.usage, "output_tokens", 0),
-                total_tokens=getattr(raw.usage, "total_tokens", 0),
-            )
-
-        return ResponseResult(
-            id=raw.id,
-            outputs=outputs,
-            model=getattr(raw, "model", None),
-            usage=usage,
-        )
+        return ResponseResult.model_validate(raw.model_dump())

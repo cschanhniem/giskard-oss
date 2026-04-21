@@ -2,9 +2,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator
 
-from ._validation import NotEmptyList, NotEmptyStr, JsonSchema
+from ._validation import JsonSchema, NotEmptyList, NotEmptyStr
 
 # -- Tool types -------------------------------------------------------
+
 
 class FunctionDefinition(BaseModel):
     name: NotEmptyStr
@@ -29,9 +30,11 @@ class FunctionDefinition(BaseModel):
             )
         return v
 
+
 class FunctionTool(BaseModel):
     type: Literal["function"] = "function"
     function: FunctionDefinition
+
 
 class Function(BaseModel):
     name: NotEmptyStr
@@ -94,6 +97,7 @@ class AssistantMessage(BaseModel):
     role: Literal["assistant"] = "assistant"
     content: NotEmptyStr | NotEmptyList[TextContentPart] | None
 
+
 class ToolMessage(BaseModel):
     role: Literal["tool"] = "tool"
     content: NotEmptyStr | NotEmptyList[TextContentPart]
@@ -101,9 +105,8 @@ class ToolMessage(BaseModel):
 
 
 class ChatParameters(BaseModel, extra="ignore"):
-    messages: NotEmptyList[
-        SystemMessage | UserMessage | AssistantMessage | ToolMessage
-    ]
+    model: NotEmptyStr
+    messages: NotEmptyList[SystemMessage | UserMessage | AssistantMessage | ToolMessage]
     tools: list[FunctionTool] | None = None
     temperature: float | None = None
     max_tokens: int | None = None
@@ -112,8 +115,11 @@ class ChatParameters(BaseModel, extra="ignore"):
     response_format: JsonSchema | None = None
 
     @field_validator("messages", mode="after")
-    def _validate_messages(self, v: NotEmptyList[SystemMessage | UserMessage | AssistantMessage | ToolMessage]) -> NotEmptyList[SystemMessage | UserMessage | AssistantMessage | ToolMessage]:
-        if not any(m.role == "system" for m in v):
-            raise ValueError("At least one system message is required")
+    def _validate_messages(
+        self,
+        v: NotEmptyList[SystemMessage | UserMessage | AssistantMessage | ToolMessage],
+    ) -> NotEmptyList[SystemMessage | UserMessage | AssistantMessage | ToolMessage]:
+        if not any(m.role != "system" for m in v):
+            raise ValueError("At least one non-system message is required")
 
         return v
