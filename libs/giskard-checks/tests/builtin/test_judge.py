@@ -1,33 +1,50 @@
 import json
+from collections.abc import Sequence
 from typing import Any, cast, override
 
 import pytest
-from giskard.agents.chat import Message
-from giskard.agents.generators._types import Response
 from giskard.agents.generators.base import BaseGenerator, GenerationParams
 from giskard.checks import Check, CheckStatus, Interaction, LLMJudge, Trace
+from giskard.llm.types import (
+    AssistantMessage,
+    ChatMessage,
+    Choice,
+    CompletionResponse,
+    UserMessage,
+)
 from pydantic import Field, ValidationError
 
 
+@BaseGenerator.register("mock")
 class MockGenerator(BaseGenerator):
+    """Mock generator that returns predictable pass/fail and reason."""
+
     passed: bool
     reason: str | None
-    calls: list[list[Message]] = Field(default_factory=list)
+    calls: list[Sequence[ChatMessage]] = Field(default_factory=list)
 
     @override
     async def _call_model(
         self,
-        messages: list[Message],
+        messages: Sequence[ChatMessage],
         params: GenerationParams,
         metadata: dict[str, Any] | None = None,
-    ) -> Response:
+    ) -> CompletionResponse:
         self.calls.append(messages)
-        return Response(
-            message=Message(
-                role="assistant",
-                content=json.dumps({"passed": self.passed, "reason": self.reason}),
-            ),
-            finish_reason="stop",
+        return CompletionResponse(
+            choices=[
+                Choice(
+                    message=AssistantMessage(
+                        role="assistant",
+                        content=json.dumps(
+                            {"passed": self.passed, "reason": self.reason}
+                        ),
+                    ),
+                    finish_reason="stop",
+                    index=0,
+                )
+            ],
+            model="mock",
         )
 
 
@@ -39,6 +56,24 @@ def serialization_roundtrip[InputType, OutputType, TraceType: Trace](  # pyright
     return cast(LLMJudge[InputType, OutputType, TraceType], check)
 
 
+async def test_custom_generator_preserved_after_serialization_roundtrip() -> None:
+    """Custom generator is preserved across model_dump/model_validate (fixes #2292)."""
+    generator = MockGenerator(passed=True, reason="Preserved reason")
+    judge = LLMJudge(generator=generator, prompt="Evaluate.")
+    roundtrip_judge = serialization_roundtrip(judge)
+
+    # Generator is preserved by roundtrip (no manual re-attachment needed)
+    assert roundtrip_judge.generator is not None
+    assert isinstance(roundtrip_judge.generator, MockGenerator)
+    assert roundtrip_judge.generator.passed is True
+    assert roundtrip_judge.generator.reason == "Preserved reason"
+
+    result = await roundtrip_judge.run(Trace())
+    assert result.status == CheckStatus.PASS
+    assert result.details["reason"] == "Preserved reason"
+    assert len(roundtrip_judge.generator.calls) == 1
+
+
 async def test_run_returns_success() -> None:
     generator = MockGenerator(passed=True, reason="Looks good")
     judge = LLMJudge(generator=generator, prompt="Evaluate the answer.")
@@ -47,17 +82,18 @@ async def test_run_returns_success() -> None:
     assert result.details["reason"] == "Looks good"
 
     assert len(generator.calls) == 1
-    assert generator.calls[0] == [Message(role="user", content="Evaluate the answer.")]
+    assert generator.calls[0] == [UserMessage(content="Evaluate the answer.")]
 
     roundtrip_judge = serialization_roundtrip(judge)
-    roundtrip_judge.generator = (
-        generator  # Generator is not serializable, so we need to set it manually
-    )
     result = await roundtrip_judge.run(Trace())
     assert result.status == CheckStatus.PASS
     assert result.details["reason"] == "Looks good"
-    assert len(generator.calls) == 2
-    assert generator.calls[-1] == [Message(role="user", content="Evaluate the answer.")]
+    assert isinstance(roundtrip_judge.generator, MockGenerator)
+    # Generator state (including calls) is preserved by roundtrip; one more call from this run
+    assert len(roundtrip_judge.generator.calls) == 2
+    assert roundtrip_judge.generator.calls[-1] == [
+        UserMessage(content="Evaluate the answer.")
+    ]
 
 
 async def test_run_returns_failure() -> None:
@@ -68,17 +104,17 @@ async def test_run_returns_failure() -> None:
     assert result.details["reason"] == "Looks bad"
 
     assert len(generator.calls) == 1
-    assert generator.calls[0] == [Message(role="user", content="Evaluate the answer.")]
+    assert generator.calls[0] == [UserMessage(content="Evaluate the answer.")]
 
     roundtrip_judge = serialization_roundtrip(judge)
-    roundtrip_judge.generator = (
-        generator  # Generator is not serializable, so we need to set it manually
-    )
     result = await roundtrip_judge.run(Trace())
     assert result.status == CheckStatus.FAIL
     assert result.details["reason"] == "Looks bad"
-    assert len(generator.calls) == 2
-    assert generator.calls[-1] == [Message(role="user", content="Evaluate the answer.")]
+    assert isinstance(roundtrip_judge.generator, MockGenerator)
+    assert len(roundtrip_judge.generator.calls) == 2
+    assert roundtrip_judge.generator.calls[-1] == [
+        UserMessage(content="Evaluate the answer.")
+    ]
 
 
 async def test_run_handle_template_reference() -> None:
@@ -99,14 +135,9 @@ async def test_run_handle_template_reference() -> None:
     assert result.details["reason"] is None
 
     assert len(generator.calls) == 1
-    assert generator.calls[0] == [
-        Message(role="user", content="Evaluate the answer: Hello")
-    ]
+    assert generator.calls[0] == [UserMessage(content="Evaluate the answer: Hello")]
 
     roundtrip_judge = serialization_roundtrip(judge)
-    roundtrip_judge.generator = (
-        generator  # Generator is not serializable, so we need to set it manually
-    )
     result = await roundtrip_judge.run(
         Trace(
             interactions=[
@@ -116,9 +147,10 @@ async def test_run_handle_template_reference() -> None:
     )
     assert result.status == CheckStatus.PASS
     assert result.details["reason"] is None
-    assert len(generator.calls) == 2
-    assert generator.calls[-1] == [
-        Message(role="user", content="Evaluate the answer: Hello")
+    assert isinstance(roundtrip_judge.generator, MockGenerator)
+    assert len(roundtrip_judge.generator.calls) == 2
+    assert roundtrip_judge.generator.calls[-1] == [
+        UserMessage(content="Evaluate the answer: Hello")
     ]
 
 

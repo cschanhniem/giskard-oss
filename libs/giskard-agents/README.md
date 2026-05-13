@@ -22,6 +22,10 @@ For development, install with dev dependencies:
 uv add giskard-agents --dev
 ```
 
+## Telemetry
+
+This package depends on `giskard-core`, which may send **optional usage analytics** when imported or when downstream libraries record events. See **[Telemetry](../giskard-core/README.md#telemetry)** in the `giskard-core` README for details and how to opt out.
+
 ## Core Concepts
 
 Three basic elements to keep in mind:
@@ -74,7 +78,7 @@ Generators have built-in support for retries and rate limiting via dedicated fie
 
 ### Retries
 
-By default, `LiteLLMGenerator` retries failed requests with exponential backoff using LiteLLM's retry-eligibility logic. You can customize the retry policy:
+By default, `GiskardLLMGenerator` retries failed requests with exponential backoff. You can customize the retry policy:
 
 ```python
 from giskard.agents.generators.middleware import RetryPolicy
@@ -116,22 +120,22 @@ For advanced cross-cutting concerns (logging, caching, etc.), you can write cust
 import logging
 from typing import Any
 
-from giskard.agents import Message
-from giskard.agents.generators import GenerationParams, Response
+from giskard.agents.generators import GenerationParams
 from giskard.agents.generators.middleware import CompletionMiddleware, NextFn
+from giskard.llm.types import ChatMessage, CompletionResponse
 
 @CompletionMiddleware.register("logging")
 class LoggingMiddleware(CompletionMiddleware):
     async def call(
         self,
-        messages: list[Message],
+        messages: list[ChatMessage],
         params: GenerationParams | None,
         metadata: dict[str, Any] | None,
         next_fn: NextFn,
-    ) -> Response:
+    ) -> CompletionResponse:
         logging.info(f"Sending {len(messages)} messages")
         response = await next_fn(messages, params, metadata)
-        logging.info(f"Got response: {response.finish_reason}")
+        logging.info(f"Got response: {response.choices[0].finish_reason}")
         return response
 
 generator = agents.Generator(
@@ -168,12 +172,16 @@ assert chat.output.mood == "happy"
 
 ### Inline templates
 
-You can associate input variables to a workflow, and use them in the messages thanks to jinja2 templating. Here's an example:
+You can associate input variables to a workflow, and use them in the messages thanks to jinja2 templating. By default, strings passed to `chat()` are literal text; pass `as_template=True` when the string should be rendered as Jinja2.
+
+Here's an example:
 
 ```python
 # This will run a chat with the message "Hello Test Bot, how are you?"
 chat = await (
-    generator.chat("Hello {{ name_of_the_bot }}, how are you?")
+    generator.chat(
+        "Hello {{ name_of_the_bot }}, how are you?", as_template=True
+    )
     .with_inputs(name_of_the_bot="Test Bot")
     .run()
 )
@@ -252,7 +260,7 @@ You can run multiple chats with different inputs by passing a list of inputs to 
 
 ```python
 chats = await (
-    generator.chat("What's the weather in {{ city }}?")
+    generator.chat("What's the weather in {{ city }}?", as_template=True)
     .run_batch([{"city": "Paris"}, {"city": "London"}])
 )
 assert len(chats) == 2
@@ -284,7 +292,8 @@ def get_weather(city: str) -> str:
     return f"It's sunny in {city}."
 
 # Run parallel chats with tools
-chats = await (generator.chat("Hello, what's the weather in {{ city }}?")
+chats = await (
+    generator.chat("Hello, what's the weather in {{ city }}?", as_template=True)
     .with_tools(get_weather)
     .run_batch([{"city": "Paris"}, {"city": "London"}])
 )
@@ -316,7 +325,8 @@ The run context will be shared between all tool calls in the same run.
 You can also retrieve it after the run is complete:
 
 ```python
-chat = await (generator.chat("Hello, what's the weather in {{ city }}?")
+chat = await (
+    generator.chat("Hello, what's the weather in {{ city }}?", as_template=True)
     .with_tools(get_weather)
     .with_inputs(city="Paris")
     .run()
@@ -331,7 +341,8 @@ To initialize the run context, you can pass it to the workflow with the `with_co
 run_context = agents.RunContext()
 run_context.set("previously_asked_cities", ["Paris"])
 
-chat = await (generator.chat("Hello, what's the weather in {{ city }}?")
+chat = await (
+    generator.chat("Hello, what's the weather in {{ city }}?", as_template=True)
     .with_context(run_context)
     .with_tools(get_weather)
     .run()

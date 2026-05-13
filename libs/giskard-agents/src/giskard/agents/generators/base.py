@@ -1,13 +1,13 @@
 import asyncio
 from abc import ABC, abstractmethod
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Literal, Self, Sequence
 
 from giskard.core import BaseRateLimiter, Discriminated, discriminated_base
-from pydantic import Field
+from giskard.llm.types import ChatMessage, ChatMessageParam, CompletionResponse
+from pydantic import Field, TypeAdapter
 
-from ..chat import Message, Role
-from ._types import GenerationParams, Response
+from ._types import GenerationParams
 from .middleware import (
     CompletionMiddleware,
     NextFn,
@@ -18,6 +18,8 @@ from .middleware import (
 
 if TYPE_CHECKING:
     from ..workflow import ChatWorkflow
+
+_CHAT_MESSAGES_TYPE_ADAPTER = TypeAdapter(Sequence[ChatMessage])
 
 
 @discriminated_base
@@ -40,11 +42,11 @@ class BaseGenerator(Discriminated, ABC):
     @abstractmethod
     async def _call_model(
         self,
-        messages: list[Message],
+        messages: Sequence[ChatMessage],
         params: GenerationParams,
         metadata: dict[str, Any] | None = None,
-    ) -> Response:
-        """Call the provider and return a Response.
+    ) -> CompletionResponse:
+        """Call the provider and return a CompletionResponse.
 
         Subclasses handle all serialization/deserialization internally.
 
@@ -59,17 +61,17 @@ class BaseGenerator(Discriminated, ABC):
 
         Returns
         -------
-        Response
+        CompletionResponse
             The model's response including message, finish reason, and metadata.
         """
         raise NotImplementedError
 
     async def _complete(
         self,
-        messages: list[Message],
+        messages: Sequence[ChatMessage],
         params: GenerationParams | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> Response:
+    ) -> CompletionResponse:
         """Template method: merge generation params and delegate to the subclass.
 
         This is the core of the middleware pipeline.  Do not override in
@@ -80,10 +82,10 @@ class BaseGenerator(Discriminated, ABC):
 
     async def complete(
         self,
-        messages: list[Message],
+        messages: Sequence[ChatMessageParam | ChatMessage],
         params: GenerationParams | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> Response:
+    ) -> CompletionResponse:
         """Get a completion from the model.
 
         Parameters
@@ -97,11 +99,13 @@ class BaseGenerator(Discriminated, ABC):
 
         Returns
         -------
-        Response
+        CompletionResponse
             The model's response.
         """
         chain = self._build_chain(self._complete)
-        return await chain(messages, params, metadata)
+        return await chain(
+            _CHAT_MESSAGES_TYPE_ADAPTER.validate_python(messages), params, metadata
+        )
 
     def _build_chain(self, core: NextFn) -> NextFn:
         """Compose built-in retry/rate-limiter and custom middlewares around *core*."""
@@ -115,10 +119,10 @@ class BaseGenerator(Discriminated, ABC):
 
         def _wrap(next_fn: NextFn, mw: CompletionMiddleware) -> NextFn:
             async def _wrapped(
-                messages: list[Message],
+                messages: Sequence[ChatMessage],
                 params: GenerationParams | None,
                 metadata: dict[str, Any] | None,
-            ) -> Response:
+            ) -> CompletionResponse:
                 return await mw.call(messages, params, metadata, next_fn)
 
             return _wrapped
@@ -159,10 +163,10 @@ class BaseGenerator(Discriminated, ABC):
 
     async def batch_complete(
         self,
-        messages: list[list[Message]],
+        messages: list[list[ChatMessage]],
         params: GenerationParams | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> list[Response]:
+    ) -> list[CompletionResponse]:
         """Get a batch of completions from the model.
 
         Parameters
@@ -176,20 +180,38 @@ class BaseGenerator(Discriminated, ABC):
 
         Returns
         -------
-        list[Response]
+        list[CompletionResponse]
             A list of model's responses.
         """
         completion_requests = [self.complete(m, params, metadata) for m in messages]
         responses = await asyncio.gather(*completion_requests)
         return responses
 
-    def chat(self, message: str, role: Role = "user") -> "ChatWorkflow[Any]":
+    def chat(
+        self,
+        message: str,
+        role: Literal["user", "assistant", "system", "developer"] = "user",
+        *,
+        as_template: bool = False,
+    ) -> "ChatWorkflow[Any]":
         """Create a new chat workflow with the given message.
 
         Parameters
         ----------
         message : str
             The initial message to start the chat with.
+        role : Role, default "user"
+            The role of the message sender.
+        as_template : bool, default False
+            When True, parse ``message`` as a Jinja2 template.
+
+            .. warning::
+
+                Treating a string as a template evaluates Jinja2 syntax at render time.
+                If any part of ``message`` can be influenced by untrusted input, this
+                can lead to template injection and unintended disclosure or execution
+                of logic exposed by the template environment. Only enable this for
+                trusted, developer-authored template strings.
 
         Returns
         -------
@@ -198,7 +220,7 @@ class BaseGenerator(Discriminated, ABC):
         """
         from ..workflow import ChatWorkflow
 
-        return ChatWorkflow(generator=self).chat(message, role)
+        return ChatWorkflow(generator=self).chat(message, role, as_template=as_template)
 
     def template(self, template_name: str) -> "ChatWorkflow[Any]":
         """Create a new chat workflow from a template.
