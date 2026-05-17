@@ -1,7 +1,9 @@
 """Tests for the JsonValid check."""
 
+import pytest
 from giskard.checks import Check, CheckStatus, Interaction, JsonValid, Trace
 from giskard.checks.core.extraction import NoMatch
+from pydantic import ValidationError
 
 
 async def test_valid_json_string_passes() -> None:
@@ -115,8 +117,15 @@ async def test_schema_validation_fails() -> None:
     assert result.details["error"] == "'old' is not of type 'integer'"
 
 
-async def test_invalid_schema_returns_error() -> None:
-    check = JsonValid(schema={"type": "not-a-json-schema-type"})
+def test_invalid_schema_fails_at_instantiation() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        JsonValid(schema={"type": "not-a-json-schema-type"})
+
+    assert "Provided JSON Schema is invalid" in str(exc_info.value)
+
+
+async def test_unresolvable_schema_ref_returns_error() -> None:
+    check = JsonValid(schema={"$ref": "https://unreachable.example.com/schema"})
     trace = await Trace.from_interactions(
         Interaction(inputs="Return JSON", outputs='{"name": "Alice"}')
     )
@@ -126,8 +135,8 @@ async def test_invalid_schema_returns_error() -> None:
     assert result.status == CheckStatus.ERROR
     assert result.errored
     assert result.message is not None
-    assert "Provided JSON Schema is invalid" in result.message
-    assert result.details["error"] == "'not-a-json-schema-type' is not valid under any of the given schemas"
+    assert "unresolvable $ref" in result.message
+    assert "https://unreachable.example.com/schema" in result.message
 
 
 async def test_missing_key_fails() -> None:
@@ -155,6 +164,35 @@ async def test_non_serializable_value_fails() -> None:
     assert result.status == CheckStatus.FAIL
     assert result.failed
     assert result.message == "Value is not JSON serializable: Object of type set is not JSON serializable"
+
+
+async def test_schema_primitive_type_passes() -> None:
+    check = JsonValid(schema={"type": "integer"})
+    trace = await Trace.from_interactions(Interaction(inputs="Return JSON", outputs=42))
+
+    result = await check.run(trace)
+
+    assert result.status == CheckStatus.PASS
+
+
+async def test_schema_primitive_type_mismatch_fails() -> None:
+    check = JsonValid(schema={"type": "string"})
+    trace = await Trace.from_interactions(Interaction(inputs="Return JSON", outputs=42))
+
+    result = await check.run(trace)
+
+    assert result.status == CheckStatus.FAIL
+
+
+async def test_schema_string_constraints_pass() -> None:
+    check = JsonValid(schema={"type": "string", "minLength": 3, "maxLength": 7})
+    trace = await Trace.from_interactions(
+        Interaction(inputs="Return JSON", outputs='"hello"')
+    )
+
+    result = await check.run(trace)
+
+    assert result.status == CheckStatus.PASS
 
 
 def test_json_valid_is_exported() -> None:
