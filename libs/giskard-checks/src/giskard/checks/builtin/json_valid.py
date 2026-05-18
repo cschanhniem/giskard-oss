@@ -31,13 +31,13 @@ class JsonValid[InputType, OutputType, TraceType: Trace](  # pyright: ignore[rep
         default="trace.last.outputs",
         description="JSONPath expression to extract the value to validate.",
     )
-    schema_: dict[str, Any] | None = Field(
+    expected_schema: dict[str, Any] | None = Field(
         default=None,
         alias="schema",
         description="Optional JSON Schema to validate the parsed JSON value against.",
     )
 
-    @field_validator("schema_")
+    @field_validator("expected_schema")
     @classmethod
     def validate_schema_definition(
         cls, schema: dict[str, Any] | None
@@ -48,7 +48,13 @@ class JsonValid[InputType, OutputType, TraceType: Trace](  # pyright: ignore[rep
         try:
             cls._validate_schema_definition(schema)
         except SchemaError as err:
-            raise ValueError(f"Provided JSON Schema is invalid: {err.message}.") from err
+            raise ValueError(
+                f"Provided JSON Schema is invalid: {err.message}."
+            ) from err
+        except Unresolvable as err:
+            raise ValueError(
+                f"Provided JSON Schema contains an unresolvable reference: {err}."
+            ) from err
 
         return schema
 
@@ -58,7 +64,7 @@ class JsonValid[InputType, OutputType, TraceType: Trace](  # pyright: ignore[rep
         details: dict[str, Any] = {
             "key": self.key,
             "value": value,
-            "schema": self.schema_,
+            "schema": self.expected_schema,
         }
 
         if isinstance(value, NoMatch):
@@ -70,8 +76,9 @@ class JsonValid[InputType, OutputType, TraceType: Trace](  # pyright: ignore[rep
         try:
             parsed_value = self._parse_json(value)
         except TypeError as err:
+            details["error"] = str(err)
             return CheckResult.failure(
-                message=str(err),
+                message=f"Value at key '{self.key}' is not JSON serializable: {err}",
                 details=details,
             )
         except json.JSONDecodeError as err:
@@ -83,19 +90,13 @@ class JsonValid[InputType, OutputType, TraceType: Trace](  # pyright: ignore[rep
 
         details["parsed_value"] = parsed_value
 
-        if self.schema_ is not None:
+        if self.expected_schema is not None:
             try:
-                self._validate_schema(parsed_value)
+                self._validate_schema(parsed_value, self.expected_schema)
             except Unresolvable as err:
                 details["error"] = str(err)
                 return CheckResult.error(
                     message=f"JSON Schema contains an unresolvable $ref: {err}.",
-                    details=details,
-                )
-            except SchemaError as err:
-                details["error"] = err.message
-                return CheckResult.error(
-                    message=f"Provided JSON Schema is invalid: {err.message}.",
                     details=details,
                 )
             except JsonSchemaValidationError as err:
@@ -118,7 +119,7 @@ class JsonValid[InputType, OutputType, TraceType: Trace](  # pyright: ignore[rep
         try:
             json.dumps(value)
         except (TypeError, ValueError) as err:
-            raise TypeError(f"Value is not JSON serializable: {err}") from err
+            raise TypeError(str(err)) from err
 
         return value
 
@@ -126,5 +127,6 @@ class JsonValid[InputType, OutputType, TraceType: Trace](  # pyright: ignore[rep
     def _validate_schema_definition(schema: dict[str, Any]) -> None:
         validator_for(schema).check_schema(schema)
 
-    def _validate_schema(self, parsed_value: Any) -> None:
-        validate(instance=parsed_value, schema=self.schema_)
+    @staticmethod
+    def _validate_schema(parsed_value: Any, schema: dict[str, Any]) -> None:
+        validate(instance=parsed_value, schema=schema)

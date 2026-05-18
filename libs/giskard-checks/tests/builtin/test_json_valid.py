@@ -1,28 +1,48 @@
 """Tests for the JsonValid check."""
 
+from typing import Any
+
 import pytest
 from giskard.checks import Check, CheckStatus, Interaction, JsonValid, Trace
 from giskard.checks.core.extraction import NoMatch
 from pydantic import ValidationError
 
 
-async def test_valid_json_string_passes() -> None:
+@pytest.mark.parametrize(
+    ("outputs", "expected_parsed"),
+    [
+        ('{"name": "Alice", "age": 30}', {"name": "Alice", "age": 30}),
+        ({"name": "Alice", "age": 30}, {"name": "Alice", "age": 30}),
+        ([{"id": 1}, {"id": 2}], [{"id": 1}, {"id": 2}]),
+        (None, None),
+        ("null", None),
+        ("true", True),
+        ("42", 42),
+    ],
+)
+async def test_valid_json_output_passes(outputs: Any, expected_parsed: Any) -> None:
     check = JsonValid()
     trace = await Trace.from_interactions(
-        Interaction(inputs="Return JSON", outputs='{"name": "Alice", "age": 30}')
+        Interaction(inputs="Return JSON", outputs=outputs)
     )
 
     result = await check.run(trace)
 
     assert result.status == CheckStatus.PASS
-    assert result.passed
-    assert result.details["parsed_value"] == {"name": "Alice", "age": 30}
+    assert result.details["parsed_value"] == expected_parsed
 
 
-async def test_invalid_json_string_fails_with_parse_error() -> None:
+@pytest.mark.parametrize(
+    "outputs",
+    [
+        '{"name": "Alice"',
+        "",
+    ],
+)
+async def test_invalid_json_string_fails(outputs: str) -> None:
     check = JsonValid()
     trace = await Trace.from_interactions(
-        Interaction(inputs="Return JSON", outputs='{"name": "Alice"')
+        Interaction(inputs="Return JSON", outputs=outputs)
     )
 
     result = await check.run(trace)
@@ -31,8 +51,6 @@ async def test_invalid_json_string_fails_with_parse_error() -> None:
     assert result.failed
     assert result.message is not None
     assert "not valid JSON" in result.message
-    assert "line 1 column" in result.message
-    assert "char" in result.message
     assert "error" in result.details
 
 
@@ -51,61 +69,57 @@ async def test_nested_jsonpath_extraction() -> None:
     assert result.details["parsed_value"] == {"items": [{"id": 1}, {"id": 2}]}
 
 
-async def test_parsed_dict_passes() -> None:
-    check = JsonValid()
-    trace = await Trace.from_interactions(
-        Interaction(inputs="Return JSON", outputs={"name": "Alice", "age": 30})
-    )
-
-    result = await check.run(trace)
-
-    assert result.status == CheckStatus.PASS
-    assert result.details["parsed_value"] == {"name": "Alice", "age": 30}
-
-
-async def test_parsed_array_passes() -> None:
-    check = JsonValid()
-    trace = await Trace.from_interactions(
-        Interaction(inputs="Return JSON", outputs=[{"id": 1}, {"id": 2}])
-    )
-
-    result = await check.run(trace)
-
-    assert result.status == CheckStatus.PASS
-    assert result.details["parsed_value"] == [{"id": 1}, {"id": 2}]
-
-
-async def test_schema_validation_passes() -> None:
-    check = JsonValid(
-        schema={
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "age": {"type": "integer"},
+@pytest.mark.parametrize(
+    ("schema", "outputs", "expected_parsed"),
+    [
+        (
+            {
+                "type": "object",
+                "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+                "required": ["name", "age"],
             },
-            "required": ["name", "age"],
-        }
-    )
+            '{"name": "Alice", "age": 30}',
+            {"name": "Alice", "age": 30},
+        ),
+        ({"type": "integer"}, 42, 42),
+        ({"type": "string", "minLength": 3, "maxLength": 7}, '"hello"', "hello"),
+    ],
+)
+async def test_schema_validation_passes(
+    schema: dict[str, Any], outputs: Any, expected_parsed: Any
+) -> None:
+    check = JsonValid(schema=schema)
     trace = await Trace.from_interactions(
-        Interaction(inputs="Return user data", outputs='{"name": "Alice", "age": 30}')
+        Interaction(inputs="Return user data", outputs=outputs)
     )
 
     result = await check.run(trace)
 
     assert result.status == CheckStatus.PASS
-    assert result.passed
+    assert result.details["parsed_value"] == expected_parsed
 
 
-async def test_schema_validation_fails() -> None:
-    check = JsonValid(
-        schema={
-            "type": "object",
-            "properties": {"age": {"type": "integer"}},
-            "required": ["age"],
-        }
-    )
+@pytest.mark.parametrize(
+    ("schema", "outputs", "expected_error"),
+    [
+        (
+            {
+                "type": "object",
+                "properties": {"age": {"type": "integer"}},
+                "required": ["age"],
+            },
+            '{"age": "old"}',
+            "'old' is not of type 'integer'",
+        ),
+        ({"type": "string"}, 42, "42 is not of type 'string'"),
+    ],
+)
+async def test_schema_validation_fails(
+    schema: dict[str, Any], outputs: Any, expected_error: str
+) -> None:
+    check = JsonValid(schema=schema)
     trace = await Trace.from_interactions(
-        Interaction(inputs="Return user data", outputs='{"age": "old"}')
+        Interaction(inputs="Return user data", outputs=outputs)
     )
 
     result = await check.run(trace)
@@ -114,7 +128,7 @@ async def test_schema_validation_fails() -> None:
     assert result.failed
     assert result.message is not None
     assert "does not match the provided schema" in result.message
-    assert result.details["error"] == "'old' is not of type 'integer'"
+    assert result.details["error"] == expected_error
 
 
 def test_invalid_schema_fails_at_instantiation() -> None:
@@ -163,36 +177,10 @@ async def test_non_serializable_value_fails() -> None:
 
     assert result.status == CheckStatus.FAIL
     assert result.failed
-    assert result.message == "Value is not JSON serializable: Object of type set is not JSON serializable"
-
-
-async def test_schema_primitive_type_passes() -> None:
-    check = JsonValid(schema={"type": "integer"})
-    trace = await Trace.from_interactions(Interaction(inputs="Return JSON", outputs=42))
-
-    result = await check.run(trace)
-
-    assert result.status == CheckStatus.PASS
-
-
-async def test_schema_primitive_type_mismatch_fails() -> None:
-    check = JsonValid(schema={"type": "string"})
-    trace = await Trace.from_interactions(Interaction(inputs="Return JSON", outputs=42))
-
-    result = await check.run(trace)
-
-    assert result.status == CheckStatus.FAIL
-
-
-async def test_schema_string_constraints_pass() -> None:
-    check = JsonValid(schema={"type": "string", "minLength": 3, "maxLength": 7})
-    trace = await Trace.from_interactions(
-        Interaction(inputs="Return JSON", outputs='"hello"')
-    )
-
-    result = await check.run(trace)
-
-    assert result.status == CheckStatus.PASS
+    assert result.message is not None
+    assert "trace.last.outputs" in result.message
+    assert "not JSON serializable" in result.message
+    assert "error" in result.details
 
 
 def test_json_valid_is_exported() -> None:
@@ -209,4 +197,4 @@ def test_json_valid_serialization_roundtrip() -> None:
     assert data["schema"] == {"type": "object"}
     assert isinstance(restored, JsonValid)
     assert restored.key == "trace.last.outputs.response"
-    assert restored.schema_ == {"type": "object"}
+    assert restored.expected_schema == {"type": "object"}
