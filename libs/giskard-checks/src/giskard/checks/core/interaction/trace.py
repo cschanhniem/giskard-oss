@@ -171,7 +171,7 @@ class ChatTrace(Trace[ChatInteraction], frozen=True):
             else:
                 outputs.append(message)
 
-        interactions.append(Interaction(inputs=inputs, outputs=outputs))
+        interactions.append(ChatInteraction(inputs=inputs, outputs=outputs))
 
         return cls(interactions=interactions)
 
