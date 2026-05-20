@@ -77,7 +77,6 @@ async def main() -> None:
 
     result = await suite.run(target=chatbot)
     result.print_report()
-    print(f"\nPass rate: {result.pass_rate:.0%}")
 
     # Save result to JSON
     result_path = os.path.join(os.path.dirname(__file__), "result.json")
