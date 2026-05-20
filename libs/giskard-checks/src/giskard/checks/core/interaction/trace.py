@@ -163,7 +163,7 @@ class ChatTrace(Trace[ChatInteraction], frozen=True):
         messages = _CHAT_MESSAGES_TYPE_ADAPTER.validate_python(messages)
         for message in messages:
             if isinstance(message, _INPUT_MESSAGE_TYPE):
-                if not outputs:
+                if outputs:
                     interactions.append(Interaction(inputs=inputs, outputs=outputs))
                     inputs = []
                     outputs = []
