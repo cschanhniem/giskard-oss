@@ -46,7 +46,7 @@ class Trace(BaseModel, Generic[InteractionType], frozen=True):
 
     Examples
     --------
-    >>> trace = Trace[str, str](interactions=[
+    >>> trace = Trace[Interaction[str, str]](interactions=[
     ...    Interaction(inputs="Hello", outputs="Hi there!"),
     ...    Interaction(inputs="How are you?", outputs="I'm doing well, thanks!"),
     ... ])
