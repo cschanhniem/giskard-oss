@@ -164,14 +164,15 @@ class ChatTrace(Trace[ChatInteraction], frozen=True):
         for message in messages:
             if isinstance(message, _INPUT_MESSAGE_TYPE):
                 if outputs:
-                    interactions.append(Interaction(inputs=inputs, outputs=outputs))
+                    interactions.append(ChatInteraction(inputs=inputs, outputs=outputs))
                     inputs = []
                     outputs = []
                 inputs.append(message)
             else:
                 outputs.append(message)
 
-        interactions.append(ChatInteraction(inputs=inputs, outputs=outputs))
+        if inputs or outputs:
+            interactions.append(ChatInteraction(inputs=inputs, outputs=outputs))
 
         return cls(interactions=interactions)
 
