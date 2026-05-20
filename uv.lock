@@ -806,6 +806,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-timeout" },
+    { name = "python-dotenv" },
 ]
 test = [
     { name = "pytest" },
@@ -832,6 +833,7 @@ dev = [
     { name = "pytest-asyncio", specifier = "==1.3.0" },
     { name = "pytest-cov", specifier = "==6.1.0" },
     { name = "pytest-timeout", specifier = "==2.4.0" },
+    { name = "python-dotenv", specifier = "==1.2.2" },
 ]
 test = [
     { name = "pytest", specifier = "==9.0.3" },
