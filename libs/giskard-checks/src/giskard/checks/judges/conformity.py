@@ -5,7 +5,6 @@ from pydantic import Field
 
 from ..core import Trace
 from ..core.check import Check
-from ..core.interaction import Interaction
 from .base import BaseLLMCheck
 
 
@@ -50,9 +49,7 @@ class Conformity[InputType, OutputType, TraceType: Trace](
         return TemplateReference(template_name="giskard.checks::judges/conformity.j2")
 
     @override
-    async def get_inputs(
-        self, trace: Trace[Interaction[InputType, OutputType]]
-    ) -> dict[str, Any]:
+    async def get_inputs(self, trace: TraceType) -> dict[str, Any]:
         """Build template variables from the trace."""
         return {
             "rule": self.rule,
