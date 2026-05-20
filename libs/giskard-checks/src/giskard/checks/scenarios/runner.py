@@ -6,7 +6,7 @@ updated Trace objects via the async generator protocol.
 """
 
 import time
-from typing import Any, cast
+from typing import cast
 
 from giskard.core import (
     NOT_PROVIDED,
@@ -18,7 +18,7 @@ from giskard.core import (
 
 from .._telemetry_props import scenario_shape_properties
 from ..core import Trace
-from ..core.interaction import Interact
+from ..core.interaction import Interact, Interaction
 from ..core.result import CheckResult, ScenarioResult, TestCaseResult
 from ..core.scenario import Scenario, Step
 from ..core.testcase import TestCase
@@ -36,7 +36,7 @@ def _validate_multiple_runs(value: int | None) -> int | None:
     return value
 
 
-def _build_steps[InputType, OutputType, TraceType: Trace[Any, Any]](
+def _build_steps[InputType, OutputType, TraceType: Trace](
     scenario: Scenario[InputType, OutputType, TraceType],
     target: (
         ProviderType[[InputType], OutputType]
@@ -119,7 +119,7 @@ class ScenarioRunner:
     """
 
     @scoped_telemetry
-    async def _run_once[InputType, OutputType, TraceType: Trace[Any, Any]](
+    async def _run_once[InputType, OutputType, TraceType: Trace](
         self,
         scenario: Scenario[InputType, OutputType, TraceType],
         target: (
@@ -197,7 +197,7 @@ class ScenarioRunner:
 
         return result
 
-    async def run[InputType, OutputType, TraceType: Trace[Any, Any]](
+    async def run[InputType, OutputType, TraceType: Trace](
         self,
         scenario: Scenario[InputType, OutputType, TraceType],
         target: (

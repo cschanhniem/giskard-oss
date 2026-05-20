@@ -7,6 +7,7 @@ from pydantic import Field
 from ..core import Trace
 from ..core.check import Check
 from ..core.extraction import JSONPathStr, provided_or_resolve
+from ..core.interaction import Interaction
 from .base import BaseLLMCheck
 
 
@@ -68,7 +69,9 @@ class Groundedness[InputType, OutputType, TraceType: Trace](  # pyright: ignore[
         return TemplateReference(template_name="giskard.checks::judges/groundedness.j2")
 
     @override
-    async def get_inputs(self, trace: Trace[InputType, OutputType]) -> dict[str, str]:
+    async def get_inputs(
+        self, trace: Trace[Interaction[InputType, OutputType]]
+    ) -> dict[str, str]:
         """Build template variables from resolved inputs.
 
         Parameters

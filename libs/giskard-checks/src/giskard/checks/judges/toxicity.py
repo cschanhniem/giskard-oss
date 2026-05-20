@@ -7,6 +7,7 @@ from pydantic import Field
 from ..core import Trace
 from ..core.check import Check
 from ..core.extraction import JSONPathStr, provided_or_resolve
+from ..core.interaction import Interaction
 from .base import BaseLLMCheck
 
 ToxicityCategory = Literal[
@@ -101,7 +102,9 @@ class Toxicity[InputType, OutputType, TraceType: Trace](  # pyright: ignore[repo
         return TemplateReference(template_name="giskard.checks::judges/toxicity.j2")
 
     @override
-    async def get_inputs(self, trace: Trace[InputType, OutputType]) -> dict[str, Any]:
+    async def get_inputs(
+        self, trace: Trace[Interaction[InputType, OutputType]]
+    ) -> dict[str, Any]:
         """Build template variables for the toxicity judge prompt.
 
         Parameters
