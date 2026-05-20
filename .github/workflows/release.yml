@@ -93,20 +93,18 @@ jobs:
       - name: Run checks
         run: make check
 
-      # OpenAI credentials; TEST_PROVIDER=openai makes libs/giskard-llm/tests/conftest.py
-      # skip non-OpenAI provider tests (bare is included via groups). Full `make test` still
-      # runs other workspace packages—only giskard-llm reads TEST_PROVIDER for now.
-      - name: Install OpenAI extras for functional tests
+      - name: Install Azure AI extras for functional tests
         run: |
-          uv pip install "giskard-llm[openai]"
-          uv pip install "giskard-agents[openai]"
+          uv pip install "giskard-llm[azure]"
+          uv pip install "giskard-agents[litellm]"
       - name: Run tests
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          TEST_MODEL: "openai/gpt-4.1-nano"
-          TEST_PROVIDER: openai
-          TEST_LITELLM_MODEL: "openai/gpt-4.1-nano"
-          TEST_EMBEDDING_MODEL: "openai/text-embedding-3-small"
+          AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
+          AZURE_AI_ENDPOINT: ${{ secrets.AZURE_AI_ENDPOINT }}
+          TEST_MODEL: "azure_ai/gpt-4.1-nano"
+          TEST_PROVIDER: azure_ai
+          TEST_LITELLM_MODEL: "azure_ai/gpt-4.1-nano"
+          TEST_EMBEDDING_MODEL: "azure_ai/text-embedding-3-small"
         run: |
           make test
 

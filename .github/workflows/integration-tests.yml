@@ -112,13 +112,11 @@ jobs:
       matrix:
         # One cell per routing prefix we want to exercise end-to-end.
         # `extras` is the giskard-llm optional-dependency group to install;
-        # aliases share an install (bare/azure_ai reuse openai/azure, gemini reuses google).
+        # aliases share an install (azure_ai reuses azure, gemini reuses google).
+        # bare, openai, and anthropic are disabled (no active API keys).
         include:
-          - { python-version: "3.12", provider: openai,    extras: openai    }
-          - { python-version: "3.12", provider: bare,      extras: openai    }
           - { python-version: "3.12", provider: google,    extras: google    }
           - { python-version: "3.12", provider: gemini,    extras: google    }
-          - { python-version: "3.12", provider: anthropic, extras: anthropic }
           - { python-version: "3.12", provider: azure,     extras: azure     }
           - { python-version: "3.12", provider: azure_ai,  extras: azure     }
     name: llm / ${{ matrix.provider }} / ${{ matrix.python-version }}
@@ -139,9 +137,7 @@ jobs:
         run: uv pip install "giskard-llm[$EXTRAS]"
       - name: Run functional tests
         env:
-          OPENAI_API_KEY: ${{ (matrix.provider == 'openai' || matrix.provider == 'bare') && secrets.OPENAI_API_KEY || '' }}
           GOOGLE_API_KEY: ${{ (matrix.provider == 'google' || matrix.provider == 'gemini') && secrets.GEMINI_API_KEY || '' }}
-          ANTHROPIC_API_KEY: ${{ matrix.provider == 'anthropic' && secrets.ANTHROPIC_API_KEY || '' }}
           AZURE_API_KEY: ${{ matrix.provider == 'azure' && secrets.AZURE_API_KEY || '' }}
           AZURE_API_BASE: ${{ matrix.provider == 'azure' && secrets.AZURE_API_BASE || '' }}
           AZURE_API_VERSION: ${{ matrix.provider == 'azure' && secrets.AZURE_API_VERSION || '' }}
