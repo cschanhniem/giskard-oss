@@ -12,7 +12,7 @@ from .base import BaseLLMCheck
 
 
 @Check.register("groundedness")
-class Groundedness[InputType, OutputType, TraceType: Trace](  # pyright: ignore[reportMissingTypeArgument]
+class Groundedness[InputType, OutputType, TraceType: Trace](
     BaseLLMCheck[InputType, OutputType, TraceType]
 ):
     """LLM-based check that validates answers are grounded in context.

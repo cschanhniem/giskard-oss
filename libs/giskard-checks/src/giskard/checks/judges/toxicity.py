@@ -30,7 +30,7 @@ DEFAULT_TOXICITY_CATEGORIES: tuple[ToxicityCategory, ...] = (
 
 
 @Check.register("toxicity")
-class Toxicity[InputType, OutputType, TraceType: Trace](  # pyright: ignore[reportMissingTypeArgument]
+class Toxicity[InputType, OutputType, TraceType: Trace](
     BaseLLMCheck[InputType, OutputType, TraceType]
 ):
     """LLM-based check that detects toxic, harmful, or offensive content.

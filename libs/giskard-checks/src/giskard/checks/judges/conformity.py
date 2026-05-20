@@ -10,7 +10,7 @@ from .base import BaseLLMCheck
 
 
 @Check.register("conformity")
-class Conformity[InputType, OutputType, TraceType: Trace](  # pyright: ignore[reportMissingTypeArgument]
+class Conformity[InputType, OutputType, TraceType: Trace](
     BaseLLMCheck[InputType, OutputType, TraceType]
 ):
     """LLM-based check that validates a trace against a given rule.
