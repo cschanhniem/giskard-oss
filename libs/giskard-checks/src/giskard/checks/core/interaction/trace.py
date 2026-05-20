@@ -154,6 +154,14 @@ _CHAT_MESSAGES_TYPE_ADAPTER = TypeAdapter(list[ChatMessage])
 class ChatTrace(Trace[ChatInteraction], frozen=True):
     """A trace for a Giskard LLM."""
 
+    @property
+    def messages(self) -> list[ChatMessage]:
+        return [
+            message
+            for interaction in self.interactions
+            for message in interaction.inputs + interaction.outputs
+        ]
+
     @classmethod
     def from_messages(cls, messages: Sequence[ChatMessage | ChatMessageParam]) -> Self:
         interactions = []

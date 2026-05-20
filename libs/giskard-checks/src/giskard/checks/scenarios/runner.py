@@ -18,7 +18,7 @@ from giskard.core import (
 
 from .._telemetry_props import scenario_shape_properties
 from ..core import Trace
-from ..core.interaction import Interact, Interaction
+from ..core.interaction import Interact
 from ..core.result import CheckResult, ScenarioResult, TestCaseResult
 from ..core.scenario import Scenario, Step
 from ..core.testcase import TestCase
@@ -70,7 +70,7 @@ def _build_steps[InputType, OutputType, TraceType: Trace](
     return steps
 
 
-def _resolve_trace_type[InputType, OutputType, TraceType: Trace[Any, Any]](
+def _resolve_trace_type[InputType, OutputType, TraceType: Trace](
     scenario: Scenario[InputType, OutputType, TraceType],
     run_target: (
         ProviderType[[InputType], OutputType]

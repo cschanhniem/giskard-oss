@@ -1,12 +1,12 @@
 import time
-from typing import Any, Generic, Self, TypeVar
+from typing import Generic, Self, TypeVar
 
 from giskard.core import telemetry_capture, telemetry_run_context, telemetry_tag
 from giskard.core.utils import NOT_PROVIDED, NotProvided
 from pydantic import BaseModel, Field
 
 from .._telemetry_props import suite_shape_properties
-from ..core.interaction import Interaction, Trace
+from ..core.interaction import Trace
 from ..core.result import ScenarioResult, SuiteResult
 from ..core.scenario import Scenario
 from ..core.types import ProviderType
@@ -117,7 +117,7 @@ class Suite(BaseModel, Generic[InputType, OutputType]):
         result_v2 = await suite.run(target=my_sut_v2)
         ```
         """
-        results: list[ScenarioResult[Trace[Interaction[Any, Any]]]] = []
+        results: list[ScenarioResult[Trace]] = []
 
         target = target if not isinstance(target, NotProvided) else self.target
         has_target = not isinstance(target, NotProvided)

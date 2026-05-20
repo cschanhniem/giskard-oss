@@ -41,6 +41,8 @@ class TestChatTraceFromMessages:
         assert isinstance(first, ChatInteraction)
         assert isinstance(second, ChatInteraction)
 
+        assert trace.messages == messages
+
         assert first.inputs == messages[:2]
         assert first.outputs == messages[2:5]
         assert second.inputs == messages[5:6]
