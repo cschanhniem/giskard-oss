@@ -23,6 +23,12 @@ class HarmbenchScenarioGenerator(ScenarioGenerator):
 
     Sampling behaviour mirrors
     :class:`~giskard.checks.scenarios_generator.base.DatasetScenarioGenerator`.
+
+    Source
+    ------
+    HarmBench: A Standardized Evaluation Framework for Automated Red Teaming and
+    Robust Refusal — Mazeika et al., 2024.
+    https://www.harmbench.org/ — https://github.com/centerforaisafety/HarmBench
     """
 
     tags: ClassVar[list[str]] = [
