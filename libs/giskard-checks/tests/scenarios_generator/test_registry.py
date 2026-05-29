@@ -147,6 +147,7 @@ def test_suite_generator_registry_contains_builtin_generators():
     from giskard.checks.scenarios_generator.adversarial_generator import (
         AdversarialScenarioGenerator,
     )
+    from giskard.checks.scenarios_generator.harmbench import HarmbenchScenarioGenerator
     from giskard.checks.scenarios_generator.prompt_injection import (
         PromptInjectionScenarioGenerator,
     )
@@ -155,6 +156,7 @@ def test_suite_generator_registry_contains_builtin_generators():
     types = {type(g) for g in suite_generator_registry.generators()}
     assert AdversarialScenarioGenerator in types
     assert PromptInjectionScenarioGenerator in types
+    assert HarmbenchScenarioGenerator in types
 
 
 def test_suite_generator_registry_exported_from_top_level():

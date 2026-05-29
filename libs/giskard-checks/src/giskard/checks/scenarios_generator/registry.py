@@ -1,5 +1,6 @@
 from .adversarial_generator import AdversarialScenarioGenerator
 from .base import ScenarioGenerator
+from .harmbench import HarmbenchScenarioGenerator
 from .prompt_injection import PromptInjectionScenarioGenerator
 
 
@@ -80,3 +81,4 @@ class SuiteGeneratorRegistry:
 suite_generator_registry = SuiteGeneratorRegistry()
 suite_generator_registry.register(AdversarialScenarioGenerator)
 suite_generator_registry.register(PromptInjectionScenarioGenerator)
+suite_generator_registry.register(HarmbenchScenarioGenerator)
