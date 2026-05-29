@@ -34,6 +34,7 @@ class LiteralGeneratorOutput[T](BaseModel):
         return self
 
 
+@InputGenerator.register("literal_generator")
 class LiteralGenerator[TraceType: Trace](  # pyright: ignore[reportMissingTypeArgument]
     InputGenerator[TraceType], WithGeneratorMixin
 ):
@@ -112,9 +113,11 @@ class LiteralGenerator[TraceType: Trace](  # pyright: ignore[reportMissingTypeAr
 
         target_language = self._resolve_target_language(trace)
 
-        # Noop path: no language configured, or languages already match
+        # Noop: no language configured, or languages match AND value is already the right type
         if target_language is None or (
-            self.input_language is not None and self.input_language == target_language
+            self.input_language is not None
+            and self.input_language == target_language
+            and isinstance(self.value, output_type)
         ):
             yield self.value
             return
@@ -159,10 +162,3 @@ class LiteralGenerator[TraceType: Trace](  # pyright: ignore[reportMissingTypeAr
             ) from last_exc
 
         yield output.message
-
-
-@InputGenerator.register("literal_generator")
-class _LiteralGeneratorRegistered[TraceType: Trace](  # pyright: ignore[reportMissingTypeArgument, reportUnusedClass]
-    LiteralGenerator[TraceType]
-):
-    """Registered alias for LiteralGenerator (kind='literal_generator')."""
