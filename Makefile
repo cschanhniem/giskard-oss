@@ -112,12 +112,16 @@ security: ## Check for security vulnerabilities
 generate-licenses: ## Generate licenses
 	uv tool run licensecheck --license MIT \
 		--format markdown --file THIRD_PARTY_NOTICES.md \
-		--skip-dependencies giskard-agents giskard-checks giskard-core
+		--requirements-paths $(foreach lib,$(LIBS),libs/$(lib)/pyproject.toml) \
+		--extras openai google anthropic all litellm \
+		--skip-dependencies giskard-agents giskard-checks giskard-core giskard-llm
 
 check-licenses: ## Check for licenses
 	uv tool run licensecheck --license MIT \
 		--show-only-failing --zero \
-		--skip-dependencies giskard-agents giskard-checks giskard-core
+		--requirements-paths $(foreach lib,$(LIBS),libs/$(lib)/pyproject.toml) \
+		--extras openai google anthropic all litellm \
+		--skip-dependencies giskard-agents giskard-checks giskard-core giskard-llm
 
 check: lint check-format check-compat typecheck security check-licenses ## Run all checks
 
