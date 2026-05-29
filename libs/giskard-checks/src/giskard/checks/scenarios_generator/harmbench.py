@@ -5,6 +5,7 @@ from typing import Any, ClassVar
 import numpy as np
 from giskard.checks.core.interaction import Trace
 from giskard.checks.core.scenario import Scenario
+from giskard.checks.generators import LiteralGenerator
 from giskard.checks.judges import LLMJudge
 
 from .base import ScenarioGenerator
@@ -59,6 +60,8 @@ class HarmbenchScenarioGenerator(ScenarioGenerator):
                 f"Dataset file not found: {path}. This may indicate a broken installation — try reinstalling the package."
             )
 
+        _rng = rng if rng is not None else np.random.default_rng()
+
         scenarios = []
         with path.open() as f:
             for line in f:
@@ -67,11 +70,20 @@ class HarmbenchScenarioGenerator(ScenarioGenerator):
                     continue
                 entry = json.loads(line)
                 metadata = entry.get("metadata", {})
+                target_language = (
+                    languages[int(_rng.integers(len(languages)))] if languages else None
+                )
                 scenario = (
                     Scenario(
                         name=f"HarmBench — {metadata.get('semantic_category', 'unknown')}"
                     )
-                    .interact(inputs=entry["message"])
+                    .interact(
+                        inputs=LiteralGenerator(
+                            value=entry["message"],
+                            input_language="en",
+                            target_language=target_language,
+                        )
+                    )
                     .check(
                         LLMJudge(prompt_path="giskard.checks::scenarios/harmbench.j2")
                     )
@@ -88,8 +100,7 @@ class HarmbenchScenarioGenerator(ScenarioGenerator):
                 scenarios.append(scenario)
 
         if max_scenarios is not None and max_scenarios < len(scenarios):
-            rng = rng if rng is not None else np.random.default_rng()
-            indices = rng.choice(len(scenarios), size=max_scenarios, replace=False)
+            indices = _rng.choice(len(scenarios), size=max_scenarios, replace=False)
             scenarios = [scenarios[i] for i in sorted(indices)]
 
         return scenarios

@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from giskard.checks.generators import LiteralGenerator
 from giskard.checks.judges import LLMJudge
 from giskard.checks.scenarios_generator.harmbench import HarmbenchScenarioGenerator
 
@@ -71,6 +72,44 @@ async def test_harmbench_generator_missing_file_raises(monkeypatch):
     gen = HarmbenchScenarioGenerator()
     with pytest.raises(RuntimeError, match="not found"):
         await gen.generate_scenario("desc", ["en"])
+
+
+async def test_harmbench_scenario_uses_literal_generator():
+    from giskard.checks.core.interaction import Interact
+
+    gen = HarmbenchScenarioGenerator()
+    scenarios = await gen.generate_scenario(
+        description="A general-purpose assistant",
+        languages=["fr"],
+        max_scenarios=1,
+        rng=np.random.default_rng(0),
+    )
+    scenario = scenarios[0]
+    all_interacts = [i for step in scenario.steps for i in step.interacts]
+    assert len(all_interacts) == 1
+    interact = all_interacts[0]
+    assert isinstance(interact, Interact)
+    assert isinstance(interact.inputs, LiteralGenerator)
+    assert interact.inputs.input_language == "en"
+    assert interact.inputs.target_language == "fr"
+    assert interact.inputs.target_language_key is None
+
+
+async def test_harmbench_scenario_no_translation_when_languages_empty():
+    from giskard.checks.core.interaction import Interact
+
+    gen = HarmbenchScenarioGenerator()
+    scenarios = await gen.generate_scenario(
+        description="A general-purpose assistant",
+        languages=[],
+        max_scenarios=1,
+        rng=np.random.default_rng(0),
+    )
+    interact = [i for step in scenarios[0].steps for i in step.interacts][0]
+    assert isinstance(interact, Interact)
+    assert isinstance(interact.inputs, LiteralGenerator)
+    assert interact.inputs.target_language is None
+    assert interact.inputs.target_language_key is None
 
 
 def test_harmbench_generator_in_registry():
