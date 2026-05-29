@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from typing import Any, Self, override
 
 from giskard.agents.errors.workflow_errors import ModelRefusalError, WorkflowError
+from giskard.llm.types import UserMessage
 from pydantic import BaseModel, Field, model_validator
 
 from ..core import Trace
@@ -61,7 +62,9 @@ class LiteralGenerator[TraceType: Trace](  # pyright: ignore[reportMissingTypeAr
         policy block (HTTP 400) is encountered.
     """
 
-    value: Any = Field(..., description="The value to yield or translate.")
+    value: str | UserMessage = Field(
+        ..., description="The value to yield or translate."
+    )
     target_language: str | None = Field(
         default=None,
         description="Static target language for translation.",
