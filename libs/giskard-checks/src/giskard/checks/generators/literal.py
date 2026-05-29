@@ -113,11 +113,12 @@ class LiteralGenerator[TraceType: Trace](  # pyright: ignore[reportMissingTypeAr
 
         target_language = self._resolve_target_language(trace)
 
-        # Noop: no language configured, or languages match AND value is already the right type
-        if target_language is None or (
-            self.input_language is not None
-            and self.input_language == target_language
-            and isinstance(self.value, output_type)
+        # Noop: value is already the right type AND (no language configured OR languages match)
+        languages_match = (
+            self.input_language is not None and self.input_language == target_language
+        )
+        if isinstance(self.value, output_type) and (
+            target_language is None or languages_match
         ):
             yield self.value
             return
