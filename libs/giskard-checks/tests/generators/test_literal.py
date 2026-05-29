@@ -123,3 +123,9 @@ async def test_calls_llm_when_input_language_not_set():
     results = [msg async for msg in gen(trace)]
     assert results == ["Bonjour"]
     assert len(mock.calls) == 1
+
+
+def test_literal_generator_importable_from_generators():
+    from giskard.checks.generators import LiteralGenerator as LG
+
+    assert LG is not None
