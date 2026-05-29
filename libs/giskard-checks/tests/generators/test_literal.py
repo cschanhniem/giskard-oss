@@ -1,6 +1,19 @@
+import json
+from collections.abc import Sequence
+from typing import Any
+from typing import override as type_override
+
 import pytest
+from giskard.agents.generators.base import BaseGenerator, GenerationParams
+from giskard.checks import InputGenerationException
 from giskard.checks.generators.literal import LiteralGenerator
-from giskard.llm.types import UserMessage
+from giskard.llm.types import (
+    AssistantMessage,
+    ChatMessage,
+    Choice,
+    CompletionResponse,
+    UserMessage,
+)
 
 from .conftest import LLMTrace
 
@@ -129,3 +142,119 @@ def test_literal_generator_importable_from_generators():
     from giskard.checks.generators import LiteralGenerator as LG
 
     assert LG is not None
+
+
+class _RefusingGenerator(BaseGenerator):
+    refuse_times: int = 1
+    valid_response: dict[str, Any]
+    _calls: int = 0
+
+    @type_override
+    async def _call_model(
+        self,
+        messages: Sequence[ChatMessage],
+        params: GenerationParams,
+        metadata: dict[str, Any] | None = None,
+    ) -> CompletionResponse:
+        self._calls += 1
+        if self._calls <= self.refuse_times:
+            return CompletionResponse(
+                choices=[
+                    Choice(
+                        message=AssistantMessage(refusal="I can't help with that."),
+                        finish_reason="refusal",
+                        index=0,
+                    )
+                ]
+            )
+        return CompletionResponse(
+            choices=[
+                Choice(
+                    message=AssistantMessage(content=json.dumps(self.valid_response)),
+                    finish_reason="stop",
+                    index=0,
+                )
+            ]
+        )
+
+
+class _PolicyBlockGenerator(BaseGenerator):
+    block_times: int = 1
+    valid_response: dict[str, Any]
+    _calls: int = 0
+
+    @type_override
+    async def _call_model(
+        self,
+        messages: Sequence[ChatMessage],
+        params: GenerationParams,
+        metadata: dict[str, Any] | None = None,
+    ) -> CompletionResponse:
+        self._calls += 1
+        if self._calls <= self.block_times:
+
+            class _Err(Exception):
+                status_code = 400
+
+                def __str__(self):
+                    return "invalid_request_error: content policy"
+
+            raise _Err()
+        return CompletionResponse(
+            choices=[
+                Choice(
+                    message=AssistantMessage(content=json.dumps(self.valid_response)),
+                    finish_reason="stop",
+                    index=0,
+                )
+            ]
+        )
+
+
+_VALID_TRANSLATED = {"schema_issue": None, "message": "Bonjour"}
+
+
+@pytest.mark.asyncio
+async def test_literal_generator_retries_refusal_and_succeeds():
+    gen = _RefusingGenerator(refuse_times=1, valid_response=_VALID_TRANSLATED)
+    lit = LiteralGenerator(
+        value="hello",
+        target_language="French",
+        input_language="English",
+        generator=gen,
+        max_retries=1,
+    )
+    results = [msg async for msg in lit(LLMTrace())]
+    assert results == ["Bonjour"]
+    assert gen._calls == 2
+
+
+@pytest.mark.asyncio
+async def test_literal_generator_raises_after_all_retries_exhausted():
+    gen = _RefusingGenerator(refuse_times=99, valid_response=_VALID_TRANSLATED)
+    lit = LiteralGenerator(
+        value="hello",
+        target_language="French",
+        input_language="English",
+        generator=gen,
+        max_retries=1,
+    )
+    with pytest.raises(InputGenerationException, match="translation failed"):
+        async for _ in lit(LLMTrace()):
+            pass
+    assert gen._calls == 2  # 1 initial + 1 retry
+
+
+@pytest.mark.asyncio
+async def test_literal_generator_retries_policy_block_and_succeeds():
+    gen = _PolicyBlockGenerator(block_times=1, valid_response=_VALID_TRANSLATED)
+    lit = LiteralGenerator(
+        value="hello",
+        target_language="French",
+        input_language="English",
+        generator=gen,
+        max_retries=1,
+    )
+    results = [msg async for msg in lit(LLMTrace())]
+    assert results == ["Bonjour"]
+    assert gen._calls == 2
