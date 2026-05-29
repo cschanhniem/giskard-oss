@@ -29,6 +29,8 @@ class LiteralGeneratorOutput[T](BaseModel):
     def _validate_message_and_schema_issue(self) -> "LiteralGeneratorOutput[T]":
         if self.message is not None and self.schema_issue is not None:
             raise ValueError("'message' and 'schema_issue' cannot both be set")
+        if self.message is None and self.schema_issue is None:
+            raise ValueError("one of 'message' or 'schema_issue' must be set")
         return self
 
 
@@ -106,7 +108,7 @@ class LiteralGenerator[TraceType: Trace](  # pyright: ignore[reportMissingTypeAr
     async def __call__(
         self, trace: TraceType, input_type: type[Any] | None = None
     ) -> AsyncGenerator[Any, TraceType]:
-        T = input_type or str
+        output_type = input_type or str
 
         target_language = self._resolve_target_language(trace)
 
@@ -120,7 +122,7 @@ class LiteralGenerator[TraceType: Trace](  # pyright: ignore[reportMissingTypeAr
         # LLM translation path
         workflow = self._generator.template(
             "giskard.checks::generators/literal.j2"
-        ).with_output(LiteralGeneratorOutput[T])
+        ).with_output(LiteralGeneratorOutput[output_type])
 
         inputs: dict[str, Any] = {
             "value": self.value,
