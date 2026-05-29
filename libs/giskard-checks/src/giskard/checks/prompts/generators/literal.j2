@@ -1,0 +1,23 @@
+Your task is to produce a value that fits the required output schema.
+The schema is provided below via `{{ _instr_output }}`. Read it carefully — `message` may be a plain string or a structured object (e.g. `{"role": "user", "content": "..."}`). Always populate `message` to match the schema exactly.
+
+{% if target_language %}
+Translate the following text to {{ target_language }}. Preserve the original tone and meaning exactly. Do not add explanations or commentary.
+{% if input_language %}The source language is {{ input_language }}.{% endif %}
+
+Text to translate:
+<value>
+{{ value }}
+</value>
+
+Put the translated text in `message`, shaped to match the output schema.
+{% else %}
+Return the following value verbatim in `message`, shaped to match the output schema. Do not modify the text.
+
+<value>
+{{ value }}
+</value>
+{% endif %}
+Set `schema_issue` only if the required output schema cannot hold a string-like value; otherwise leave it null.
+
+{{ _instr_output }}
