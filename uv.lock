@@ -1023,12 +1023,35 @@ dependencies = [
     { name = "numpy" },
 ]
 
+[package.optional-dependencies]
+all = [
+    { name = "giskard-agents", extra = ["all"] },
+]
+anthropic = [
+    { name = "giskard-agents", extra = ["anthropic"] },
+]
+google = [
+    { name = "giskard-agents", extra = ["google"] },
+]
+litellm = [
+    { name = "giskard-agents", extra = ["litellm"] },
+]
+openai = [
+    { name = "giskard-agents", extra = ["openai"] },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "giskard-agents", editable = "libs/giskard-agents" },
+    { name = "giskard-agents", extras = ["all"], marker = "extra == 'all'", editable = "libs/giskard-agents" },
+    { name = "giskard-agents", extras = ["anthropic"], marker = "extra == 'anthropic'", editable = "libs/giskard-agents" },
+    { name = "giskard-agents", extras = ["google"], marker = "extra == 'google'", editable = "libs/giskard-agents" },
+    { name = "giskard-agents", extras = ["litellm"], marker = "extra == 'litellm'", editable = "libs/giskard-agents" },
+    { name = "giskard-agents", extras = ["openai"], marker = "extra == 'openai'", editable = "libs/giskard-agents" },
     { name = "giskard-checks", editable = "libs/giskard-checks" },
     { name = "numpy", specifier = ">=2.4.1,<3" },
 ]
+provides-extras = ["openai", "google", "anthropic", "litellm", "all"]
 
 [[package]]
 name = "google-auth"

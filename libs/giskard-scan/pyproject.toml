@@ -12,6 +12,13 @@ dependencies = [
     "numpy>=2.4.1,<3",
 ]
 
+[project.optional-dependencies]
+openai = ["giskard-agents[openai]"]
+google = ["giskard-agents[google]"]
+anthropic = ["giskard-agents[anthropic]"]
+litellm = ["giskard-agents[litellm]"]
+all = ["giskard-agents[all]"]
+
 [build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
