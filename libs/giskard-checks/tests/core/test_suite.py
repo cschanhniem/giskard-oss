@@ -6,7 +6,6 @@ import pytest
 from giskard.checks import Equals, Scenario, Suite
 from giskard.checks.core.result import GroupedSuiteResult, GroupStats, ScenarioStatus
 from giskard.checks.scenarios.suite import _OverallOnly, _SuiteProgress
-from pydantic import ValidationError
 from rich.progress import MofNCompleteColumn, Progress
 from rich.text import Text
 
@@ -24,7 +23,6 @@ def sut2():
 @pytest.fixture
 def sut3():
     return lambda inputs: f"SUT3: {inputs}"
-
 
 
 @pytest.fixture
@@ -532,3 +530,10 @@ def test_parse_tag_no_colon():
     key, value = _parse_tag("flaky")
     assert key == "flaky"
     assert value == ""
+
+
+def test_group_stats_importable_from_top_level():
+    from giskard.checks import GroupedSuiteResult, GroupStats  # noqa: F401
+
+    assert GroupStats is not None
+    assert GroupedSuiteResult is not None
