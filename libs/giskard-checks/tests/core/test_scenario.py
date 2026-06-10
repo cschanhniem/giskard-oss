@@ -1286,3 +1286,41 @@ class TestScenarioDynamicBinding:
             match="Interaction outputs are not provided and no target was bound",
         ):
             await scenario.run()
+
+
+@pytest.mark.asyncio
+async def test_scenario_result_snapshots_tags():
+    def sut(inputs):
+        return f"reply: {inputs}"
+
+    from giskard.checks import Equals
+
+    scenario = (
+        Scenario("s", tags=["Category:Hallucination"])
+        .interact("hello", sut)
+        .check(Equals(expected_value="reply: hello", key="trace.last.outputs"))
+    )
+    result = await scenario.run()
+    assert result.tags == ["Category:Hallucination"]
+
+
+@pytest.mark.asyncio
+async def test_scenario_result_tags_snapshot_is_frozen():
+    def sut(inputs):
+        return inputs
+
+    scenario = Scenario("s", tags=["Category:Foo"]).interact("hi", sut)
+    result = await scenario.run()
+    scenario.tags = ["Category:Bar"]  # mutate after run
+    assert result.tags == ["Category:Foo"]  # snapshot unchanged
+
+
+@pytest.mark.asyncio
+async def test_scenario_result_tags_snapshot_independent_from_original():
+    def sut(inputs):
+        return inputs
+
+    scenario = Scenario("s", tags=["Category:Foo"]).interact("hi", sut)
+    result = await scenario.run()
+    scenario.tags.append("Category:Bar")  # mutate the original list
+    assert result.tags == ["Category:Foo"]  # snapshot unchanged

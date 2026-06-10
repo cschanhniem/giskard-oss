@@ -290,6 +290,10 @@ class ScenarioResult[TraceType: Trace](BaseResult, frozen=True):  # pyright: ign
         default=1,
         description="Full scenario executions that ran before stopping (at most multiple_runs).",
     )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Snapshot of scenario tags at run time.",
+    )
 
     @computed_field
     @property
