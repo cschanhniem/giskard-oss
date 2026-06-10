@@ -736,7 +736,7 @@ class GroupStats(BaseModel, frozen=True):
     @computed_field
     @property
     def pass_rate(self) -> float | None:
-        """Fraction passed out of non-errored; None when total is 0."""
+        """Fraction passed out of (passed + failed); None when passed + failed == 0."""
         denominator = self.passed + self.failed
         if denominator == 0:
             return None
@@ -762,7 +762,7 @@ class GroupedSuiteResult(BaseResult, frozen=True):
         for group_value, stats in self.groups.items():
             display_name = "(untagged)" if group_value is None else group_value
             rate = (
-                f"{stats.passed} / {stats.total}"
+                f"{stats.passed} / {stats.passed + stats.failed}"
                 if stats.pass_rate is not None
                 else "—"
             )

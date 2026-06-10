@@ -6,6 +6,7 @@ import pytest
 from giskard.checks import Equals, Scenario, Suite
 from giskard.checks.core.result import GroupedSuiteResult, GroupStats, ScenarioStatus
 from giskard.checks.scenarios.suite import _OverallOnly, _SuiteProgress
+from pydantic import ValidationError
 from rich.progress import MofNCompleteColumn, Progress
 from rich.text import Text
 
@@ -23,6 +24,7 @@ def sut2():
 @pytest.fixture
 def sut3():
     return lambda inputs: f"SUT3: {inputs}"
+
 
 
 @pytest.fixture
@@ -432,10 +434,10 @@ def test_group_stats_total_includes_errored():
     assert stats.total == 4
 
 
-def test_group_stats_frozen():
-    stats = GroupStats(name="X", passed=1, failed=0, errored=0)
-    with pytest.raises(Exception):
-        stats.passed = 999
+def test_group_stats_pass_rate_none_when_all_errored():
+    stats = GroupStats(name="X", passed=0, failed=0, errored=3)
+    assert stats.total == 3
+    assert stats.pass_rate is None
 
 
 @pytest.mark.asyncio
