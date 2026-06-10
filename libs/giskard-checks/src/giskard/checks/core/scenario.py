@@ -83,6 +83,9 @@ class Scenario[InputType, OutputType, TraceType: Trace](BaseModel):  # pyright: 
         execution uses a fresh trace). Each run must pass for the next to run;
         execution stops on the first non-passing run (FAIL, ERROR, or SKIP). This
         is not a "retry until one success" mode.
+    tags : list[str]
+        Flat ``'Key:Value'`` labels for grouping and Hub upload alignment.
+        Tags without ``:`` are bare boolean labels.
     """
 
     name: str = Field(
