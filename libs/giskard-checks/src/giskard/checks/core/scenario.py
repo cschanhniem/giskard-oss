@@ -119,6 +119,10 @@ class Scenario[InputType, OutputType, TraceType: Trace](BaseModel):  # pyright: 
         ge=1,
         strict=True,
     )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Flat 'Key:Value' labels for grouping and Hub upload alignment.",
+    )
 
     def __init__(
         self,
@@ -288,6 +292,22 @@ class Scenario[InputType, OutputType, TraceType: Trace](BaseModel):  # pyright: 
             This scenario for method chaining.
         """
         self.target = target
+        return self
+
+    def with_tags(self, tags: list[str]) -> Self:
+        """Set scenario tags for grouping and Hub upload.
+
+        Parameters
+        ----------
+        tags : list[str]
+            Flat strings in 'Key:Value' format. Tags without ':' are bare labels.
+
+        Returns
+        -------
+        Self
+            This scenario for method chaining.
+        """
+        self.tags = tags
         return self
 
     async def run(
