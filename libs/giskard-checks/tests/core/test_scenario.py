@@ -1293,8 +1293,6 @@ async def test_scenario_result_snapshots_tags():
     def sut(inputs):
         return f"reply: {inputs}"
 
-    from giskard.checks import Equals
-
     scenario = (
         Scenario("s", tags=["Category:Hallucination"])
         .interact("hello", sut)
@@ -1305,7 +1303,7 @@ async def test_scenario_result_snapshots_tags():
 
 
 @pytest.mark.asyncio
-async def test_scenario_result_tags_snapshot_is_frozen():
+async def test_scenario_result_tags_snapshot_is_independent():
     def sut(inputs):
         return inputs
 
