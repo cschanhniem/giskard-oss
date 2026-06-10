@@ -1,12 +1,14 @@
+from collections import defaultdict
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.panel import Panel
 from rich.rule import Rule
+from rich.table import Table
 from rich.text import Text
 
 from .interaction import Trace
@@ -570,6 +572,80 @@ class SuiteResult(BaseResult, frozen=True):
 
         return to_junit_xml(self, path=path)
 
+    def group_by(self, key: str) -> "GroupedSuiteResult":
+        """Group results by a tag key and return a GroupedSuiteResult.
+
+        A scenario may appear in multiple buckets if it carries several tags with
+        the same key (e.g. ``["Category:Hallucination", "Category:Adversarial"]``).
+        This is intentional: a scenario that tests two vulnerabilities affects both
+        pass rates. Totals across buckets may therefore exceed the number of scenarios.
+        Scenarios with no tag matching ``key`` go into the ``None`` bucket.
+
+        Parameters
+        ----------
+        key : str
+            The tag key to group by (e.g. ``"Category"``).
+
+        Returns
+        -------
+        GroupedSuiteResult
+            Wrapper holding this result, the key, and per-group stats.
+        """
+
+        def _empty_bucket() -> _BucketCounts:
+            return _BucketCounts(passed=0, failed=0, errored=0)
+
+        def _record(bucket: _BucketCounts, result: "ScenarioResult[Any]") -> None:
+            if result.passed:
+                bucket["passed"] += 1
+            elif result.errored:
+                bucket["errored"] += 1
+            else:
+                bucket["failed"] += 1
+
+        buckets: defaultdict[str | None, _BucketCounts] = defaultdict(_empty_bucket)
+
+        for result in self.results:
+            matched = False
+            for tag in result.tags:
+                tag_key, tag_value = _parse_tag(tag)
+                if tag_key == key:
+                    _record(buckets[tag_value], result)
+                    matched = True
+            if not matched:
+                _record(buckets[None], result)
+
+        groups = {
+            bucket_key: GroupStats(
+                name=bucket_key,
+                passed=counts["passed"],
+                failed=counts["failed"],
+                errored=counts["errored"],
+            )
+            for bucket_key, counts in buckets.items()
+        }
+
+        return GroupedSuiteResult(suite_result=self, key=key, groups=groups)
+
+    def print_report(
+        self, console: Console | None = None, group_by: str | None = None
+    ) -> None:
+        """Print the suite report, optionally with a grouped pass-rate table.
+
+        Parameters
+        ----------
+        console : Console | None
+            Rich console to use. Defaults to a new Console().
+        group_by : str | None
+            Tag key to group by (e.g. ``"Category"``). When set, appends a
+            per-group pass-rate table after the standard report.
+        """
+        console = console or Console()
+        if group_by is not None:
+            console.print(self.group_by(group_by))
+        else:
+            console.print(self)
+
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
@@ -629,3 +705,66 @@ class SuiteResult(BaseResult, frozen=True):
         )
         summary = ", ".join(count_parts)
         yield f"Summary: {summary} | Pass Rate: [default bold]{self.pass_rate:.1%}[/default bold] | Total Duration: {self.duration_ms}ms"
+
+
+def _parse_tag(tag: str) -> tuple[str, str]:
+    key, _, value = tag.partition(":")
+    return key, value
+
+
+class _BucketCounts(TypedDict):
+    passed: int
+    failed: int
+    errored: int
+
+
+class GroupStats(BaseModel, frozen=True):
+    """Pass/fail counts for one tag-value bucket. Mirrors Hub's Metric shape."""
+
+    name: str | None
+    passed: int
+    failed: int
+    errored: int
+
+    @computed_field
+    @property
+    def total(self) -> int:
+        """Total scenarios in this bucket (passed + failed + errored)."""
+        return self.passed + self.failed + self.errored
+
+    @computed_field
+    @property
+    def pass_rate(self) -> float | None:
+        """Fraction passed out of non-errored; None when total is 0."""
+        denominator = self.passed + self.failed
+        if denominator == 0:
+            return None
+        return self.passed / denominator
+
+
+class GroupedSuiteResult(BaseResult, frozen=True):
+    """SuiteResult grouped by a tag key, with per-group stats and Rich table."""
+
+    suite_result: SuiteResult
+    key: str
+    groups: dict[str | None, GroupStats]
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        yield from self.suite_result.__rich_console__(console, options)
+
+        table = Table(title=f"Results by {self.key}")
+        table.add_column(self.key, style="bold")
+        table.add_column("Pass Rate", justify="right")
+
+        for group_value, stats in self.groups.items():
+            display_name = "(untagged)" if group_value is None else group_value
+            rate = (
+                f"{stats.passed} / {stats.total}"
+                if stats.pass_rate is not None
+                else "—"
+            )
+            table.add_row(display_name, rate)
+
+        yield table
