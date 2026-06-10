@@ -2,7 +2,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, TypedDict
+from typing import Any, ClassVar, TypedDict, override
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 from rich.console import Console, ConsoleOptions, RenderResult
@@ -627,6 +627,7 @@ class SuiteResult(BaseResult, frozen=True):
 
         return GroupedSuiteResult(suite_result=self, key=key, groups=groups)
 
+    @override
     def print_report(
         self, console: Console | None = None, group_by: str | None = None
     ) -> None:
