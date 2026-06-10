@@ -2,7 +2,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, TypedDict, override
+from typing import Any, ClassVar, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 from rich.console import Console, ConsoleOptions, RenderResult
@@ -593,13 +593,15 @@ class SuiteResult(BaseResult, frozen=True):
         """
 
         def _empty_bucket() -> _BucketCounts:
-            return _BucketCounts(passed=0, failed=0, errored=0)
+            return _BucketCounts(passed=0, failed=0, errored=0, skipped=0)
 
         def _record(bucket: _BucketCounts, result: "ScenarioResult[Any]") -> None:
             if result.passed:
                 bucket["passed"] += 1
             elif result.errored:
                 bucket["errored"] += 1
+            elif result.skipped:
+                bucket["skipped"] += 1
             else:
                 bucket["failed"] += 1
 
@@ -621,13 +623,13 @@ class SuiteResult(BaseResult, frozen=True):
                 passed=counts["passed"],
                 failed=counts["failed"],
                 errored=counts["errored"],
+                skipped=counts["skipped"],
             )
             for bucket_key, counts in buckets.items()
         }
 
         return GroupedSuiteResult(suite_result=self, key=key, groups=groups)
 
-    @override
     def print_report(
         self, console: Console | None = None, group_by: str | None = None
     ) -> None:
@@ -717,6 +719,7 @@ class _BucketCounts(TypedDict):
     passed: int
     failed: int
     errored: int
+    skipped: int
 
 
 class GroupStats(BaseModel, frozen=True):
@@ -726,12 +729,13 @@ class GroupStats(BaseModel, frozen=True):
     passed: int
     failed: int
     errored: int
+    skipped: int = 0
 
     @computed_field
     @property
     def total(self) -> int:
-        """Total scenarios in this bucket (passed + failed + errored)."""
-        return self.passed + self.failed + self.errored
+        """Total scenarios in this bucket (passed + failed + errored + skipped)."""
+        return self.passed + self.failed + self.errored + self.skipped
 
     @computed_field
     @property

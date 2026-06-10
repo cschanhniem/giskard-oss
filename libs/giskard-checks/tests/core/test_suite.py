@@ -438,6 +438,62 @@ def test_group_stats_pass_rate_none_when_all_errored():
     assert stats.pass_rate is None
 
 
+def test_group_stats_total_includes_skipped():
+    stats = GroupStats(name="X", passed=1, failed=1, errored=1, skipped=2)
+    assert stats.total == 5
+
+
+def test_group_stats_pass_rate_excludes_skipped_from_denominator():
+    stats = GroupStats(name="X", passed=2, failed=1, errored=0, skipped=5)
+    assert stats.pass_rate == pytest.approx(2 / 3)
+
+
+def test_suite_group_by_skipped_scenario_counted_separately():
+    from giskard.checks.core.interaction.trace import Trace
+    from giskard.checks.core.result import (
+        CheckResult,
+        ScenarioResult,
+        SuiteResult,
+        TestCaseResult,
+    )
+
+    empty_trace = Trace(interactions=[])
+
+    skipped_step = TestCaseResult(
+        results=[CheckResult.skip(message="precondition not met")],
+        duration_ms=0,
+    )
+    skipped_scenario = ScenarioResult(
+        scenario_name="t_skip",
+        steps=[skipped_step],
+        duration_ms=0,
+        final_trace=empty_trace,
+        tags=["Category:Hallucination"],
+    )
+    passing_step = TestCaseResult(
+        results=[CheckResult.success()],
+        duration_ms=0,
+    )
+    passing_scenario = ScenarioResult(
+        scenario_name="t_pass",
+        steps=[passing_step],
+        duration_ms=0,
+        final_trace=empty_trace,
+        tags=["Category:Hallucination"],
+    )
+    suite_result = SuiteResult(
+        results=[skipped_scenario, passing_scenario], duration_ms=0
+    )
+    grouped = suite_result.group_by("Category")
+
+    stats = grouped.groups["Hallucination"]
+    assert stats.skipped == 1
+    assert stats.passed == 1
+    assert stats.failed == 0
+    assert stats.total == 2
+    assert stats.pass_rate == 1.0  # skipped excluded from denominator
+
+
 @pytest.mark.asyncio
 async def test_suite_group_by_returns_grouped_suite_result(identity_sut):
     from giskard.checks import Equals, Scenario, Suite
