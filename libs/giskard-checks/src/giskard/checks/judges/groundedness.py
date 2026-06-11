@@ -1,6 +1,6 @@
 from typing import override
 
-from giskard.agents.workflow import TemplateReference
+from giskard.agents import TemplateReference
 from giskard.core import provide_not_none
 from pydantic import Field
 
@@ -40,7 +40,7 @@ class Groundedness[InputType, OutputType, TraceType: Trace](  # pyright: ignore[
 
     Examples
     --------
-    >>> from giskard.agents.generators import Generator
+    >>> from giskard.agents import Generator
     >>> check = Groundedness(
     ...     answer="The Eiffel Tower is in Paris.",
     ...     context=["Paris is the capital of France.", "It's located in Europe."],

@@ -43,6 +43,7 @@ from .core import (
     Trace,
     resolve,
 )
+from .core.mixin import WithGeneratorMixin
 from .generators.base import BaseLLMGenerator, LLMGenerator
 from .generators.user import UserSimulator
 from .judges import (
@@ -97,6 +98,7 @@ __all__ = [
     "Interact",
     "Interaction",
     "InteractionSpec",
+    "WithGeneratorMixin",
     # Builtin and LLM-based checks
     "AnswerRelevance",
     "AllOf",

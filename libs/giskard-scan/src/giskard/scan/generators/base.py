@@ -2,8 +2,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
-from giskard.checks.core.interaction import Trace
-from giskard.checks.core.scenario import Scenario
+from giskard.checks import Scenario, Trace
 from pydantic import BaseModel, ValidationError
 
 

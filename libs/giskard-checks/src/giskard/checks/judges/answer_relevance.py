@@ -1,6 +1,6 @@
 from typing import Any, override
 
-from giskard.agents.workflow import TemplateReference
+from giskard.agents import TemplateReference
 from giskard.core import provide_not_none
 from pydantic import Field
 
