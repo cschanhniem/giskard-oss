@@ -2,7 +2,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, TypedDict
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 from rich.console import Console, ConsoleOptions, RenderResult
@@ -592,20 +592,9 @@ class SuiteResult(BaseResult, frozen=True):
             Wrapper holding this result, the key, and per-group stats.
         """
 
-        def _empty_bucket() -> _BucketCounts:
-            return _BucketCounts(passed=0, failed=0, errored=0, skipped=0)
-
-        def _record(bucket: _BucketCounts, result: "ScenarioResult[Any]") -> None:
-            if result.passed:
-                bucket["passed"] += 1
-            elif result.errored:
-                bucket["errored"] += 1
-            elif result.skipped:
-                bucket["skipped"] += 1
-            else:
-                bucket["failed"] += 1
-
-        buckets: defaultdict[str | None, _BucketCounts] = defaultdict(_empty_bucket)
+        buckets: defaultdict[str | None, dict[str, int]] = defaultdict(
+            lambda: {"passed": 0, "failed": 0, "errored": 0, "skipped": 0}
+        )
 
         for result in self.results:
             matched_values: set[str] = set()
@@ -613,20 +602,11 @@ class SuiteResult(BaseResult, frozen=True):
                 tag_key, tag_value = _parse_tag(tag)
                 if tag_key == key:
                     matched_values.add(tag_value)
-            if matched_values:
-                for val in matched_values:
-                    _record(buckets[val], result)
-            else:
-                _record(buckets[None], result)
+            for val in matched_values or {None}:
+                _record_into(buckets[val], result)
 
         groups = {
-            bucket_key: GroupStats(
-                name=bucket_key,
-                passed=counts["passed"],
-                failed=counts["failed"],
-                errored=counts["errored"],
-                skipped=counts["skipped"],
-            )
+            bucket_key: GroupStats(name=bucket_key, **counts)
             for bucket_key, counts in buckets.items()
         }
 
@@ -646,10 +626,7 @@ class SuiteResult(BaseResult, frozen=True):
             per-group pass-rate table after the standard report.
         """
         console = console or Console()
-        if group_by is not None:
-            console.print(self.group_by(group_by))
-        else:
-            console.print(self)
+        console.print(self.group_by(group_by) if group_by is not None else self)
 
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
@@ -717,11 +694,15 @@ def _parse_tag(tag: str) -> tuple[str, str]:
     return key, value
 
 
-class _BucketCounts(TypedDict):
-    passed: int
-    failed: int
-    errored: int
-    skipped: int
+def _record_into(bucket: dict[str, int], result: "ScenarioResult[Any]") -> None:
+    if result.passed:
+        bucket["passed"] += 1
+    elif result.errored:
+        bucket["errored"] += 1
+    elif result.skipped:
+        bucket["skipped"] += 1
+    else:
+        bucket["failed"] += 1
 
 
 class GroupStats(BaseModel, frozen=True):
@@ -741,12 +722,17 @@ class GroupStats(BaseModel, frozen=True):
 
     @computed_field
     @property
+    def non_skipped(self) -> int:
+        """Scenarios counted toward pass rate (total minus skipped)."""
+        return self.total - self.skipped
+
+    @computed_field
+    @property
     def pass_rate(self) -> float | None:
-        """Fraction passed out of non-skipped scenarios; None when total - skipped == 0."""
-        denominator = self.passed + self.failed + self.errored
-        if denominator == 0:
+        """Fraction passed out of non-skipped scenarios; None when non_skipped == 0."""
+        if self.non_skipped == 0:
             return None
-        return self.passed / denominator
+        return self.passed / self.non_skipped
 
 
 class GroupedSuiteResult(BaseResult, frozen=True):
@@ -766,15 +752,14 @@ class GroupedSuiteResult(BaseResult, frozen=True):
         table.add_column("Pass Rate", justify="right")
 
         for group_value, stats in self.groups.items():
-            display_name = (
-                "(untagged)"
-                if group_value is None
-                else "true"
-                if group_value == ""
-                else group_value
-            )
+            if group_value is None:
+                display_name = "(untagged)"
+            elif group_value == "":
+                display_name = "true"
+            else:
+                display_name = group_value
             rate = (
-                f"{stats.passed} / {stats.passed + stats.failed + stats.errored}"
+                f"{stats.passed} / {stats.non_skipped}"
                 if stats.pass_rate is not None
                 else "—"
             )

@@ -590,6 +590,3 @@ def test_parse_tag_no_colon():
 
 def test_group_stats_importable_from_top_level():
     from giskard.checks import GroupedSuiteResult, GroupStats  # noqa: F401
-
-    assert GroupStats is not None
-    assert GroupedSuiteResult is not None
