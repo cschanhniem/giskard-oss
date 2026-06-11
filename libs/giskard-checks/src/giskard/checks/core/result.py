@@ -608,13 +608,15 @@ class SuiteResult(BaseResult, frozen=True):
         buckets: defaultdict[str | None, _BucketCounts] = defaultdict(_empty_bucket)
 
         for result in self.results:
-            matched = False
+            matched_values: set[str] = set()
             for tag in result.tags:
                 tag_key, tag_value = _parse_tag(tag)
                 if tag_key == key:
-                    _record(buckets[tag_value], result)
-                    matched = True
-            if not matched:
+                    matched_values.add(tag_value)
+            if matched_values:
+                for val in matched_values:
+                    _record(buckets[val], result)
+            else:
                 _record(buckets[None], result)
 
         groups = {
@@ -740,8 +742,8 @@ class GroupStats(BaseModel, frozen=True):
     @computed_field
     @property
     def pass_rate(self) -> float | None:
-        """Fraction passed out of (passed + failed); None when passed + failed == 0."""
-        denominator = self.passed + self.failed
+        """Fraction passed out of non-skipped scenarios; None when total - skipped == 0."""
+        denominator = self.passed + self.failed + self.errored
         if denominator == 0:
             return None
         return self.passed / denominator
@@ -764,9 +766,15 @@ class GroupedSuiteResult(BaseResult, frozen=True):
         table.add_column("Pass Rate", justify="right")
 
         for group_value, stats in self.groups.items():
-            display_name = "(untagged)" if group_value is None else group_value
+            display_name = (
+                "(untagged)"
+                if group_value is None
+                else "true"
+                if group_value == ""
+                else group_value
+            )
             rate = (
-                f"{stats.passed} / {stats.passed + stats.failed}"
+                f"{stats.passed} / {stats.passed + stats.failed + stats.errored}"
                 if stats.pass_rate is not None
                 else "—"
             )

@@ -432,10 +432,10 @@ def test_group_stats_total_includes_errored():
     assert stats.total == 4
 
 
-def test_group_stats_pass_rate_none_when_all_errored():
+def test_group_stats_pass_rate_zero_when_all_errored():
     stats = GroupStats(name="X", passed=0, failed=0, errored=3)
     assert stats.total == 3
-    assert stats.pass_rate is None
+    assert stats.pass_rate == pytest.approx(0.0)
 
 
 def test_group_stats_total_includes_skipped():
