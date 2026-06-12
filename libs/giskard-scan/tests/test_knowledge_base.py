@@ -1,0 +1,103 @@
+from typing import override
+
+import numpy as np
+import pytest
+from giskard.agents.embeddings.base import BaseEmbeddingModel, EmbeddingParams
+from giskard.scan.utils.knowledge_base import (
+    EmbeddedDocument,
+    KnowledgeBase,
+    normalize_knowledge_base,
+)
+
+
+class _StubEmbeddingModel(BaseEmbeddingModel):
+    embeddings: list[list[float]]
+    calls: list[list[str]]
+
+    @override
+    async def _embed(
+        self, texts: list[str], params: EmbeddingParams | None = None
+    ) -> list[np.ndarray]:
+        self.calls.append(texts)
+        return [np.asarray(embedding) for embedding in self.embeddings[: len(texts)]]
+
+
+def test_knowledge_base_from_texts_does_not_compute_embeddings():
+    knowledge_base = KnowledgeBase.from_texts(["alpha", "beta"])
+
+    assert [document.content for document in knowledge_base.documents] == [
+        "alpha",
+        "beta",
+    ]
+    assert [document.embeddings for document in knowledge_base.documents] == [
+        None,
+        None,
+    ]
+
+
+def test_normalize_knowledge_base_accepts_existing_instance_and_texts():
+    knowledge_base = KnowledgeBase.from_texts(["alpha"])
+    normalized = normalize_knowledge_base(["beta"])
+
+    assert normalize_knowledge_base(knowledge_base) is knowledge_base
+    assert normalize_knowledge_base(None) is None
+    assert normalized is not None
+    assert normalized.documents[0].content == "beta"
+
+
+def test_knowledge_base_drops_empty_documents():
+    knowledge_base = KnowledgeBase.from_texts(["valid", "  ", "also valid"])
+
+    assert [document.content for document in knowledge_base.documents] == [
+        "valid",
+        "also valid",
+    ]
+
+
+def test_knowledge_base_rejects_all_empty_documents():
+    with pytest.raises(ValueError, match="at least one non-empty document"):
+        _ = KnowledgeBase.from_texts(["", "  "])
+
+
+async def test_closest_documents_computes_missing_embeddings_lazily_in_batch():
+    embedding_model = _StubEmbeddingModel(
+        embeddings=[[1.0, 0.0], [0.9, 0.1], [0.0, 1.0]],
+        calls=[],
+    )
+    knowledge_base = KnowledgeBase.from_texts(["seed", "near", "far"])
+    knowledge_base.embedding_model = embedding_model
+
+    assert embedding_model.calls == []
+
+    closest = await knowledge_base.closest_documents(seed_index=0, max_documents=2)
+
+    assert embedding_model.calls == [["seed", "near", "far"]]
+    assert [document.content for document in closest] == ["seed", "near"]
+    assert [document.embeddings for document in knowledge_base.documents] == [
+        [1.0, 0.0],
+        [0.9, 0.1],
+        [0.0, 1.0],
+    ]
+
+
+async def test_closest_documents_recomputes_all_embeddings_when_any_is_missing():
+    embedding_model = _StubEmbeddingModel(
+        embeddings=[[1.0, 0.0], [0.9, 0.1]],
+        calls=[],
+    )
+    knowledge_base = KnowledgeBase(
+        documents=[
+            EmbeddedDocument(content="seed", embeddings=[0.0, 1.0]),
+            EmbeddedDocument(content="near"),
+        ],
+        embedding_model=embedding_model,
+    )
+
+    closest = await knowledge_base.closest_documents(seed_index=0, max_documents=2)
+
+    assert embedding_model.calls == [["seed", "near"]]
+    assert [document.content for document in closest] == ["seed", "near"]
+    assert [document.embeddings for document in knowledge_base.documents] == [
+        [1.0, 0.0],
+        [0.9, 0.1],
+    ]
