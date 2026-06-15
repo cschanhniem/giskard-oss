@@ -41,7 +41,7 @@ scan = ["giskard-scan>=1.0.0b2,<2"]
 
 # Aggregated packages
 all-llms = ["giskard-llm[all]>=1.0.1b3,<2"] # Install all native LLM providers
-all-checks =  ["giskard-checks[all]>=1.0.2b4,<2"] # Install all optional checks dependencies
+all-checks = ["giskard-checks[all]>=1.0.2b4,<2"] # Install all optional checks dependencies
 full = ["giskard[all-llms,all-checks,scan,litellm]"]
 
 [project.urls]

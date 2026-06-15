@@ -127,12 +127,8 @@ jobs:
         run: |
           if [ "$PACKAGE" = "giskard" ]; then
             echo "dir=." >> "$GITHUB_OUTPUT"
-            echo "pyproject=pyproject.toml" >> "$GITHUB_OUTPUT"
-            echo "dist_root=dist" >> "$GITHUB_OUTPUT"
           else
             echo "dir=libs/${PACKAGE}" >> "$GITHUB_OUTPUT"
-            echo "pyproject=libs/${PACKAGE}/pyproject.toml" >> "$GITHUB_OUTPUT"
-            echo "dist_root=libs/${PACKAGE}/dist" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Bump version
@@ -171,11 +167,11 @@ jobs:
       - name: Commit version bump
         env:
           NEW_VERSION: ${{ steps.bump.outputs.new_version }}
-          PYPROJECT_PATH: ${{ steps.pkg.outputs.pyproject }}
+          PKG_DIR: ${{ steps.pkg.outputs.dir }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "$PYPROJECT_PATH" "uv.lock"
+          git add "$PKG_DIR/pyproject.toml" "uv.lock"
           git commit -m "chore($PACKAGE): bump version to $NEW_VERSION"
 
       - name: Push to main
@@ -205,13 +201,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.bump.outputs.tag }}
           NEW_VERSION: ${{ steps.bump.outputs.new_version }}
-          DIST_ROOT: ${{ steps.pkg.outputs.dist_root }}
+          PKG_DIR: ${{ steps.pkg.outputs.dir }}
         run: |
           gh release create "$TAG" \
             --title "$PACKAGE v$NEW_VERSION" \
             --generate-notes \
-            "$DIST_ROOT"/*.tar.gz \
-            "$DIST_ROOT"/*.whl
+            "$PKG_DIR"/dist/*.tar.gz \
+            "$PKG_DIR"/dist/*.whl
 
       - name: Push to PyPI
         if: ${{ github.event.inputs.dry_run == 'false' }}
