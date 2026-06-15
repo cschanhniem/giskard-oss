@@ -6,6 +6,8 @@ from giskard.checks.core.interaction import Trace
 from giskard.checks.core.scenario import Scenario
 from pydantic import BaseModel, Field, ValidationError
 
+from ..utils.knowledge_base import KnowledgeBase
+
 
 class ScenarioGenerator(BaseModel):
     """Abstract base class for all scenario generators.
@@ -34,10 +36,37 @@ class ScenarioGenerator(BaseModel):
                 maintaining reproducibility. Direct callers typically pass a
                 fresh generator or ``None`` to let the implementation create
                 one.
-
         Returns:
             A list of :class:`~giskard.checks.core.scenario.Scenario` objects
             ready to be collected into a :class:`~giskard.checks.scenarios.Suite`.
+        """
+        raise NotImplementedError
+
+
+class WithKnowledgeBase:
+    """Mixin for generators that accept knowledge-base context."""
+
+    async def generate_scenario(
+        self,
+        description: str,
+        languages: list[str],
+        max_scenarios: int | None = None,
+        rng: np.random.Generator | None = None,
+        *,
+        knowledge_base: KnowledgeBase | list[str] | None = None,
+    ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
+        """Generate scenarios using optional knowledge-base context.
+
+        Args:
+            description: Natural-language description of the agent under test.
+            languages: BCP-47 language codes the agent is expected to handle.
+            max_scenarios: Upper bound on the number of scenarios to return.
+            rng: Seeded NumPy random generator for reproducible sampling.
+            knowledge_base: Optional knowledge base to use for scenario
+                generation. Raw strings are converted to a :class:`KnowledgeBase`.
+
+        Returns:
+            Generated scenarios.
         """
         raise NotImplementedError
 
@@ -79,7 +108,6 @@ class DatasetScenarioGenerator(ScenarioGenerator):
                 ``None``, the full dataset is returned.
             rng: Random generator used for subset sampling.  A fresh
                 ``np.random.default_rng()`` is created if ``None``.
-
         Returns:
             A list of annotated :class:`~giskard.checks.core.scenario.Scenario`
             objects, ordered by their original dataset position.

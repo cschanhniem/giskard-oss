@@ -5,7 +5,7 @@ import pytest
 from giskard.checks.core.interaction import Trace
 from giskard.checks.core.scenario import Scenario
 from giskard.scan.catalog import generate_suite
-from giskard.scan.generators.base import ScenarioGenerator
+from giskard.scan.generators.base import ScenarioGenerator, WithKnowledgeBase
 from giskard.scan.vulnerability import vulnerability_suite_generator_registry
 
 
@@ -131,6 +131,32 @@ async def test_generate_suite_no_max_passes_none_to_generators():
         generators=[_TrackingGenerator(name="z")],
     )
     assert received["z"] is None
+
+
+async def test_generate_suite_forwards_knowledge_base_to_generators():
+    received: list[object] = []
+
+    class _KnowledgeBaseTrackingGenerator(ScenarioGenerator, WithKnowledgeBase):
+        async def generate_scenario(
+            self,
+            description: str,
+            languages: list[str],
+            max_scenarios: int | None = None,
+            rng: np.random.Generator | None = None,
+            *,
+            knowledge_base: object = None,
+        ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
+            received.append(knowledge_base)
+            return []
+
+    await generate_suite(
+        "My chatbot",
+        languages=["en"],
+        generators=[_KnowledgeBaseTrackingGenerator()],
+        knowledge_base=["reference document"],
+    )
+
+    assert received == [["reference document"]]
 
 
 async def test_generate_suite_registry_generators_not_mutated():

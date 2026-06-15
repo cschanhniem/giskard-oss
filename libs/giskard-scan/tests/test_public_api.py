@@ -1,7 +1,7 @@
 from giskard.scan import (
     AdversarialScenarioGenerator,
     CrescendoAttackScenarioGenerator,
-    EmbeddedDocument,
+    Document,
     GOATAttackScenarioGenerator,
     KnowledgeBase,
     KnowledgeBaseScenarioGenerator,
@@ -17,7 +17,7 @@ from giskard.scan import (
 
 def test_all_public_symbols_importable():
     assert callable(generate_suite)
-    assert EmbeddedDocument(content="doc").content == "doc"
+    assert Document(content="doc").content == "doc"
     assert KnowledgeBase.from_texts(["doc"]).documents[0].content == "doc"
     assert callable(quality_scan)
     assert isinstance(quality_suite_generator_registry, SuiteGeneratorRegistry)

@@ -1,13 +1,14 @@
 """Knowledge base primitives for document-grounded scan generators."""
 
-from typing import Self
+import asyncio
+from typing import ClassVar, Self
 
 import numpy as np
 from giskard.checks.core.mixin import WithEmbeddingMixin
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator
 
 
-class EmbeddedDocument(BaseModel):
+class Document(BaseModel):
     """Document stored in a scan knowledge base.
 
     Attributes:
@@ -27,31 +28,38 @@ class KnowledgeBase(WithEmbeddingMixin):
 
     Embeddings are not computed when the knowledge base is created. They are
     filled lazily, in batches, the first time nearest-neighbor retrieval needs
-    them.
+    them. The public document collection is immutable so documents cannot be
+    added after embeddings have been computed.
     """
 
-    documents: list[EmbeddedDocument]
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    documents: tuple[Document, ...]
+    _embedding_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 
     @classmethod
     def from_texts(cls, texts: list[str]) -> Self:
         """Create a knowledge base from raw text documents.
 
         Args:
-            texts: Text chunks to wrap as :class:`EmbeddedDocument` objects.
+            texts: Text chunks to wrap as :class:`Document` objects.
 
         Returns:
             A knowledge base containing one document per input text.
         """
-        return cls(documents=[EmbeddedDocument(content=text) for text in texts])
+        return cls(documents=tuple(Document(content=text) for text in texts))
 
-    @model_validator(mode="after")
-    def _validate_documents(self) -> Self:
-        self.documents = [doc for doc in self.documents if doc.content.strip()]
-        if not self.documents:
+    @field_validator("documents", mode="after")
+    @classmethod
+    def _validate_documents(
+        cls, documents: tuple[Document, ...]
+    ) -> tuple[Document, ...]:
+        non_empty_documents = tuple(doc for doc in documents if doc.content.strip())
+        if not non_empty_documents:
             raise ValueError(
                 "KnowledgeBase must contain at least one non-empty document"
             )
-        return self
+        return non_empty_documents
 
     async def ensure_embeddings(self) -> None:
         """Ensure every document has embeddings from the same model.
@@ -63,22 +71,27 @@ class KnowledgeBase(WithEmbeddingMixin):
         if all(doc.embeddings is not None for doc in self.documents):
             return
 
-        embeddings = await self._embedding_model.embed(
-            [document.content for document in self.documents]
-        )
-        if len(embeddings) != len(self.documents):
-            raise ValueError(
-                "Embedding model returned a different number of vectors than documents"
-            )
+        async with self._embedding_lock:
+            if all(doc.embeddings is not None for doc in self.documents):
+                return
 
-        for document, embedding in zip(self.documents, embeddings):
-            document.embeddings = [
-                float(value) for value in np.asarray(embedding, dtype=float).tolist()
-            ]
+            embeddings = await self._embedding_model.embed(
+                [document.content for document in self.documents]
+            )
+            if len(embeddings) != len(self.documents):
+                raise ValueError(
+                    "Embedding model returned a different number of vectors than documents"
+                )
+
+            for document, embedding in zip(self.documents, embeddings):
+                document.embeddings = [
+                    float(value)
+                    for value in np.asarray(embedding, dtype=float).tolist()
+                ]
 
     async def closest_documents(
         self, seed_index: int, max_documents: int
-    ) -> list[EmbeddedDocument]:
+    ) -> list[Document]:
         """Return the documents closest to a seed document by cosine similarity.
 
         Args:

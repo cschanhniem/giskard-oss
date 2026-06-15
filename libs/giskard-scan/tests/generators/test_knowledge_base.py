@@ -9,17 +9,17 @@ from giskard.scan.generators.knowledge_base import (
     KNOWLEDGE_BASE_QUALITY_TAG,
     KnowledgeBaseScenarioGenerator,
 )
-from giskard.scan.utils.knowledge_base import EmbeddedDocument, KnowledgeBase
+from giskard.scan.utils.knowledge_base import Document, KnowledgeBase
 from pydantic import ValidationError
 
 
 def _knowledge_base() -> KnowledgeBase:
     return KnowledgeBase(
-        documents=[
-            EmbeddedDocument(content="alpha", embeddings=[1.0, 0.0]),
-            EmbeddedDocument(content="alpha nearby", embeddings=[0.9, 0.1]),
-            EmbeddedDocument(content="beta", embeddings=[0.0, 1.0]),
-        ]
+        documents=(
+            Document(content="alpha", embeddings=[1.0, 0.0]),
+            Document(content="alpha nearby", embeddings=[0.9, 0.1]),
+            Document(content="beta", embeddings=[0.0, 1.0]),
+        )
     )
 
 

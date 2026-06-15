@@ -1,6 +1,6 @@
 """Knowledge-base scenario generator for document-grounded quality scans."""
 
-from typing import Any
+from typing import Any, override
 
 import numpy as np
 from giskard.checks import Groundedness
@@ -10,11 +10,11 @@ from giskard.checks.generators import LLMGenerator
 from pydantic import Field
 
 from ..utils.knowledge_base import (
-    EmbeddedDocument,
+    Document,
     KnowledgeBase,
     normalize_knowledge_base,
 )
-from .base import ScenarioGenerator
+from .base import ScenarioGenerator, WithKnowledgeBase
 
 DEFAULT_KNOWLEDGE_BASE_SCENARIOS = 5
 DEFAULT_KNOWLEDGE_BASE_CONTEXT_DOCUMENTS = 4
@@ -22,7 +22,7 @@ DEFAULT_KNOWLEDGE_BASE_MAX_TURNS = 3
 KNOWLEDGE_BASE_QUALITY_TAG = "quality:raget"
 
 
-class KnowledgeBaseScenarioGenerator(ScenarioGenerator):
+class KnowledgeBaseScenarioGenerator(WithKnowledgeBase, ScenarioGenerator):
     """Generate document-grounded quality scenarios from a knowledge base.
 
     The generator samples seed documents, retrieves their nearest neighbors,
@@ -36,12 +36,15 @@ class KnowledgeBaseScenarioGenerator(ScenarioGenerator):
     )
     max_turns: int = Field(default=DEFAULT_KNOWLEDGE_BASE_MAX_TURNS, ge=1)
 
+    @override
     async def generate_scenario(
         self,
         description: str,
         languages: list[str],
         max_scenarios: int | None = None,
         rng: np.random.Generator | None = None,
+        *,
+        knowledge_base: KnowledgeBase | list[str] | None = None,
     ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
         """Generate scenarios from nearest-neighbor knowledge base contexts.
 
@@ -51,13 +54,17 @@ class KnowledgeBaseScenarioGenerator(ScenarioGenerator):
             max_scenarios: Maximum number of scenarios to generate. ``None``
                 uses :data:`DEFAULT_KNOWLEDGE_BASE_SCENARIOS`.
             rng: Random generator used for reproducible seed document sampling.
+            knowledge_base: Optional knowledge base overriding the generator
+                instance configuration for this call.
 
         Returns:
             Generated scenarios, or an empty list when no knowledge base is
             configured.
         """
-        knowledge_base = normalize_knowledge_base(self.knowledge_base)
-        if knowledge_base is None:
+        resolved_knowledge_base = normalize_knowledge_base(
+            knowledge_base if knowledge_base is not None else self.knowledge_base
+        )
+        if resolved_knowledge_base is None:
             return []
 
         scenario_count = (
@@ -68,13 +75,13 @@ class KnowledgeBaseScenarioGenerator(ScenarioGenerator):
 
         rng = rng or np.random.default_rng()
         seed_indices = self._sample_seed_indices(
-            len(knowledge_base.documents), scenario_count, rng
+            len(resolved_knowledge_base.documents), scenario_count, rng
         )
         sampled_languages = self._sample_languages(languages, scenario_count, rng)
 
         scenarios = []
         for seed_index, language in zip(seed_indices, sampled_languages):
-            context_documents = await knowledge_base.closest_documents(
+            context_documents = await resolved_knowledge_base.closest_documents(
                 int(seed_index), self.context_documents
             )
             scenarios.append(
@@ -127,7 +134,7 @@ class KnowledgeBaseScenarioGenerator(ScenarioGenerator):
         languages: list[str],
         language: str,
         seed_index: int,
-        context_documents: list[EmbeddedDocument],
+        context_documents: list[Document],
     ) -> Scenario[Any, Any, Trace[Any, Any]]:
         context = [document.content for document in context_documents]
         return (

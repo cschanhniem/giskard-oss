@@ -5,10 +5,9 @@ import warnings
 from giskard.checks import SuiteResult, Target, Trace
 
 from .catalog import generate_suite
-from .generators.base import ScenarioGenerator
 from .generators.knowledge_base import KnowledgeBaseScenarioGenerator
 from .registry import SuiteGeneratorRegistry
-from .utils.knowledge_base import KnowledgeBase
+from .utils.knowledge_base import KnowledgeBase, normalize_knowledge_base
 
 QUALITY_GENERATOR_TYPES: tuple[type[KnowledgeBaseScenarioGenerator],] = (
     KnowledgeBaseScenarioGenerator,
@@ -26,7 +25,7 @@ async def quality_scan[InputType, OutputType, TraceType: Trace](  # pyright: ign
     knowledge_base: KnowledgeBase | list[str] | None = None,
     max_scenarios: int | None = None,
     seed: int = 42,
-    group_by: str | None = None,
+    group_by: str | None = "quality",
     parallel: bool = True,
     max_concurrency: int | None = None,
 ) -> SuiteResult:
@@ -53,14 +52,17 @@ async def quality_scan[InputType, OutputType, TraceType: Trace](  # pyright: ign
     Returns:
         The completed suite result for the quality scan.
     """
-    knowledge_base = _warn_if_missing_knowledge_base(knowledge_base)
+    knowledge_base = normalize_knowledge_base(
+        _warn_if_missing_knowledge_base(knowledge_base)
+    )
 
     suite = await generate_suite(
         description=description,
         languages=languages,
-        generators=_configured_generators(knowledge_base),
+        generators=quality_suite_generator_registry.generators(),
         max_scenarios=max_scenarios,
         seed=seed,
+        knowledge_base=knowledge_base,
     )
 
     result = await suite.run(
@@ -95,21 +97,3 @@ def _warn_if_missing_knowledge_base(
         stacklevel=2,
     )
     return None
-
-
-def _configured_generators(
-    knowledge_base: KnowledgeBase | list[str] | None,
-) -> list[ScenarioGenerator]:
-    generators = []
-    for generator in quality_suite_generator_registry.generators():
-        if (
-            knowledge_base is not None
-            and isinstance(generator, KnowledgeBaseScenarioGenerator)
-            and generator.knowledge_base is None
-        ):
-            generators.append(
-                generator.model_copy(update={"knowledge_base": knowledge_base})
-            )
-        else:
-            generators.append(generator)
-    return generators

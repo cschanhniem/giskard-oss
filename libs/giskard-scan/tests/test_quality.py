@@ -9,6 +9,7 @@ from giskard.checks.scenarios.suite import Suite
 from giskard.scan.generators.base import ScenarioGenerator
 from giskard.scan.generators.knowledge_base import KnowledgeBaseScenarioGenerator
 from giskard.scan.quality import quality_scan, quality_suite_generator_registry
+from giskard.scan.utils.knowledge_base import KnowledgeBase
 
 
 class _DeterministicQualityGenerator(ScenarioGenerator):
@@ -163,7 +164,7 @@ async def test_quality_scan_uses_empty_registry_by_default(
         )
 
     assert result.results == []
-    assert printed_reports == [None]
+    assert printed_reports == ["quality"]
 
 
 async def test_quality_scan_warns_and_skips_empty_raw_knowledge_base(
@@ -171,6 +172,7 @@ async def test_quality_scan_warns_and_skips_empty_raw_knowledge_base(
 ):
     quality_suite_generator_registry.register(KnowledgeBaseScenarioGenerator())
     captured_generators: list[ScenarioGenerator] = []
+    captured_knowledge_bases: list[object] = []
 
     class _FakeResult:
         def print_report(self, group_by: str | None = None) -> None:
@@ -188,6 +190,7 @@ async def test_quality_scan_warns_and_skips_empty_raw_knowledge_base(
 
     async def generate_suite_spy(**kwargs: Any) -> _FakeSuite:
         captured_generators.extend(kwargs["generators"])
+        captured_knowledge_bases.append(kwargs["knowledge_base"])
         return _FakeSuite()
 
     monkeypatch.setattr(quality_module, "generate_suite", generate_suite_spy)
@@ -204,6 +207,7 @@ async def test_quality_scan_warns_and_skips_empty_raw_knowledge_base(
         )
 
     assert len(captured_generators) == 1
+    assert captured_knowledge_bases == [None]
     generator = captured_generators[0]
     assert isinstance(generator, KnowledgeBaseScenarioGenerator)
     assert generator.knowledge_base is None
@@ -214,6 +218,7 @@ async def test_quality_scan_configures_knowledge_base_generator(
 ):
     quality_suite_generator_registry.register(KnowledgeBaseScenarioGenerator())
     captured_generators: list[ScenarioGenerator] = []
+    captured_knowledge_bases: list[object] = []
     printed_reports: list[str | None] = []
 
     class _FakeResult:
@@ -232,6 +237,7 @@ async def test_quality_scan_configures_knowledge_base_generator(
 
     async def generate_suite_spy(**kwargs: Any) -> _FakeSuite:
         captured_generators.extend(kwargs["generators"])
+        captured_knowledge_bases.append(kwargs["knowledge_base"])
         return _FakeSuite()
 
     monkeypatch.setattr(quality_module, "generate_suite", generate_suite_spy)
@@ -246,8 +252,13 @@ async def test_quality_scan_configures_knowledge_base_generator(
         knowledge_base=["alpha"],
     )
 
-    assert printed_reports == [None]
+    assert printed_reports == ["quality"]
     assert len(captured_generators) == 1
+    assert len(captured_knowledge_bases) == 1
+    assert isinstance(captured_knowledge_bases[0], KnowledgeBase)
+    assert [document.content for document in captured_knowledge_bases[0].documents] == [
+        "alpha"
+    ]
     generator = captured_generators[0]
     assert isinstance(generator, KnowledgeBaseScenarioGenerator)
-    assert generator.knowledge_base == ["alpha"]
+    assert generator.knowledge_base is None

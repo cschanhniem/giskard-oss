@@ -14,7 +14,7 @@ from .generators.knowledge_base import KnowledgeBaseScenarioGenerator
 from .generators.prompt_injection import PromptInjectionScenarioGenerator
 from .quality import quality_scan, quality_suite_generator_registry
 from .registry import SuiteGeneratorRegistry
-from .utils.knowledge_base import EmbeddedDocument, KnowledgeBase
+from .utils.knowledge_base import Document, KnowledgeBase
 from .vulnerability import vulnerability_scan, vulnerability_suite_generator_registry
 
 add_prompts_path(str(Path(__file__).parent / "prompts"), "giskard.scan")
@@ -30,7 +30,7 @@ __all__ = [
     "GOATAttackScenarioGenerator",
     "PromptInjectionScenarioGenerator",
     "KnowledgeBaseScenarioGenerator",
-    "EmbeddedDocument",
+    "Document",
     "KnowledgeBase",
     "SuiteGeneratorRegistry",
     "quality_suite_generator_registry",

@@ -1,14 +1,15 @@
 from asyncio import TaskGroup
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from giskard.checks.core.interaction import Trace
 from giskard.checks.core.scenario import Scenario
 from giskard.checks.scenarios.suite import Suite
 
-from .generators.base import ScenarioGenerator
+from .generators.base import ScenarioGenerator, WithKnowledgeBase
 from .registry import _normalize_generator
+from .utils.knowledge_base import KnowledgeBase
 
 
 async def _generate_scenarios(
@@ -17,6 +18,7 @@ async def _generate_scenarios(
     generators: list[ScenarioGenerator],
     max_scenarios: int | None = None,
     seed: int = 42,
+    knowledge_base: KnowledgeBase | list[str] | None = None,
 ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
     rng = np.random.default_rng(seed)
 
@@ -30,8 +32,13 @@ async def _generate_scenarios(
             for generator, n, child_rng in zip(generators, counts, child_rngs):
                 tasks.append(
                     task_group.create_task(
-                        generator.generate_scenario(
-                            description, languages, int(n), child_rng
+                        _generate_for_generator(
+                            generator,
+                            description,
+                            languages,
+                            max_scenarios=int(n),
+                            rng=child_rng,
+                            knowledge_base=knowledge_base,
                         )
                     )
                 )
@@ -39,11 +46,45 @@ async def _generate_scenarios(
             for generator in generators:
                 tasks.append(
                     task_group.create_task(
-                        generator.generate_scenario(description, languages)
+                        _generate_for_generator(
+                            generator,
+                            description,
+                            languages,
+                            max_scenarios=None,
+                            rng=rng,
+                            knowledge_base=knowledge_base,
+                        )
                     )
                 )
 
     return [scenario for task in tasks for scenario in task.result()]
+
+
+async def _generate_for_generator(
+    generator: ScenarioGenerator,
+    description: str,
+    languages: list[str],
+    max_scenarios: int | None = None,
+    rng: np.random.Generator | None = None,
+    knowledge_base: KnowledgeBase | list[str] | None = None,
+) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
+    if isinstance(generator, WithKnowledgeBase):
+        # basedpyright does not narrow the method signature from the mixin check.
+        kb_generator = cast(WithKnowledgeBase, generator)
+        return await kb_generator.generate_scenario(
+            description,
+            languages,
+            max_scenarios,
+            rng,
+            knowledge_base=knowledge_base,
+        )
+
+    return await generator.generate_scenario(
+        description,
+        languages,
+        max_scenarios,
+        rng,
+    )
 
 
 async def generate_suite(
@@ -52,6 +93,7 @@ async def generate_suite(
     generators: Sequence[ScenarioGenerator | type[ScenarioGenerator]],
     max_scenarios: int | None = None,
     seed: int = 42,
+    knowledge_base: KnowledgeBase | list[str] | None = None,
 ) -> Suite[Any, Any]:
     """Generate a test suite by running the supplied generators.
 
@@ -67,6 +109,8 @@ async def generate_suite(
             None lets each generator apply its own default.
         seed: Integer seed for the top-level RNG, ensuring reproducibility
             across runs with the same arguments.
+        knowledge_base: Optional documents forwarded to generators that use
+            knowledge-base context.
 
     Returns:
         A Suite containing all generated scenarios, ready for execution.
@@ -76,6 +120,6 @@ async def generate_suite(
 
     resolved = [_normalize_generator(g) for g in generators]
     scenarios = await _generate_scenarios(
-        description, languages, resolved, max_scenarios, seed
+        description, languages, resolved, max_scenarios, seed, knowledge_base
     )
     return Suite(name="Scenarios", scenarios=scenarios)
