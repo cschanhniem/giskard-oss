@@ -1,5 +1,6 @@
 import asyncio
 import time
+import warnings
 from contextlib import nullcontext
 
 import pytest
@@ -315,6 +316,7 @@ async def test_suite_parallel_rejects_non_integer_max_concurrency(max_concurrenc
     ("max_concurrency", "error_type", "message"),
     [
         (0, ValueError, "max_concurrency must be greater than 0"),
+        (-1, ValueError, "max_concurrency must be greater than 0"),
         (True, TypeError, "max_concurrency must be None or a positive integer"),
         (1.5, TypeError, "max_concurrency must be None or a positive integer"),
         ("2", TypeError, "max_concurrency must be None or a positive integer"),
@@ -329,6 +331,29 @@ async def test_suite_rejects_invalid_max_concurrency_without_parallel(
 
     with pytest.raises(error_type, match=message):
         await suite.run(parallel=False, max_concurrency=max_concurrency)
+
+
+@pytest.mark.asyncio
+async def test_suite_serial_run_succeeds_with_valid_max_concurrency():
+    suite = Suite(name="serial_with_limit_suite", target=lambda inputs: inputs)
+    suite.append(Scenario("a").interact("a"))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        result = await suite.run(parallel=False, max_concurrency=2)
+
+    assert result.passed_count == 1
+
+
+@pytest.mark.asyncio
+async def test_suite_warns_when_max_concurrency_set_without_parallel():
+    suite = Suite(name="warn_suite", target=lambda inputs: inputs)
+    suite.append(Scenario("a").interact("a"))
+
+    with pytest.warns(
+        UserWarning, match="max_concurrency has no effect when parallel=False"
+    ):
+        await suite.run(parallel=False, max_concurrency=2)
 
 
 def test_progress_counter_appears_only_on_the_overall_row():

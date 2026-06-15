@@ -1,5 +1,6 @@
 import asyncio
 import time
+import warnings
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager, nullcontext
 from typing import Any, Generic, Self, TypeVar
@@ -213,6 +214,12 @@ class Suite(BaseModel, Generic[InputType, OutputType]):
                 raise TypeError("max_concurrency must be None or a positive integer")
             if max_concurrency < 1:
                 raise ValueError("max_concurrency must be greater than 0")
+            if not parallel:
+                warnings.warn(
+                    "max_concurrency has no effect when parallel=False; set parallel=True to enable concurrency limiting.",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
         with telemetry_run_context():
             telemetry_tag("giskard_component", "suite")
