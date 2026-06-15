@@ -98,6 +98,15 @@ class _SuiteProgress(Progress):
             yield summary
 
 
+def _validate_max_concurrency(value: int | None) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("max_concurrency must be None or a positive integer")
+    if value < 1:
+        raise ValueError("max_concurrency must be greater than 0")
+
+
 class Suite(BaseModel, Generic[InputType, OutputType]):
     """A suite of scenarios that can be run together with a shared target.
 
@@ -207,19 +216,13 @@ class Suite(BaseModel, Generic[InputType, OutputType]):
         target = target if not isinstance(target, NotProvided) else self.target
         has_target = not isinstance(target, NotProvided)
 
-        if max_concurrency is not None:
-            if isinstance(max_concurrency, bool) or not isinstance(
-                max_concurrency, int
-            ):
-                raise TypeError("max_concurrency must be None or a positive integer")
-            if max_concurrency < 1:
-                raise ValueError("max_concurrency must be greater than 0")
-            if not parallel:
-                warnings.warn(
-                    "max_concurrency has no effect when parallel=False; set parallel=True to enable concurrency limiting.",
-                    UserWarning,
-                    stacklevel=2,
-                )
+        _validate_max_concurrency(max_concurrency)
+        if max_concurrency is not None and not parallel:
+            warnings.warn(
+                "max_concurrency has no effect when parallel=False; set parallel=True to enable concurrency limiting.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         with telemetry_run_context():
             telemetry_tag("giskard_component", "suite")
