@@ -830,7 +830,7 @@ anthropic = [
     { name = "giskard-llm", extra = ["anthropic"] },
 ]
 azure = [
-    { name = "giskard-llm", extra = ["openai"] },
+    { name = "giskard-llm", extra = ["azure"] },
 ]
 full = [
     { name = "giskard-agents", extra = ["litellm"] },
@@ -875,13 +875,13 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "giskard", extras = ["all-llms", "all-checks", "scan", "litellm"], marker = "extra == 'full'" },
-    { name = "giskard", extras = ["openai"], marker = "extra == 'azure'" },
     { name = "giskard-agents", extras = ["litellm"], marker = "extra == 'litellm'", editable = "libs/giskard-agents" },
     { name = "giskard-checks", editable = "libs/giskard-checks" },
     { name = "giskard-checks", extras = ["all"], marker = "extra == 'all-checks'", editable = "libs/giskard-checks" },
     { name = "giskard-checks", extras = ["regorus"], marker = "extra == 'regorus'", editable = "libs/giskard-checks" },
     { name = "giskard-llm", extras = ["all"], marker = "extra == 'all-llms'", editable = "libs/giskard-llm" },
     { name = "giskard-llm", extras = ["anthropic"], marker = "extra == 'anthropic'", editable = "libs/giskard-llm" },
+    { name = "giskard-llm", extras = ["azure"], marker = "extra == 'azure'", editable = "libs/giskard-llm" },
     { name = "giskard-llm", extras = ["google"], marker = "extra == 'google'", editable = "libs/giskard-llm" },
     { name = "giskard-llm", extras = ["openai"], marker = "extra == 'openai'", editable = "libs/giskard-llm" },
     { name = "giskard-scan", marker = "extra == 'scan'", editable = "libs/giskard-scan" },

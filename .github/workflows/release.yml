@@ -162,6 +162,7 @@ jobs:
       - name: Build package
         working-directory: ${{ steps.pkg.outputs.dir }}
         run: |
+          rm -rf dist
           uv build --out-dir dist
 
       - name: Commit version bump
