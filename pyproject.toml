@@ -2,7 +2,7 @@
 name = "giskard"
 readme = "README.md"
 license = { text = "Apache Software License 2.0" }
-version = "3.0.0a1"
+version = "3.0.0b1"
 description = "The testing framework dedicated to ML models, from tabular to LLMs"
 authors = [{ name = "Giskard AI", email = "hello@giskard.ai" }]
 
@@ -19,13 +19,30 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 
-dependencies = [
-    "giskard-core>=1.0.0a1",
-    "giskard-agents>=1.0.0a1",
-    "giskard-checks>=1.0.0a1",
-    "giskard-scan>=1.0.0b1",
-]
+dependencies = ["giskard-checks>=1.0.2b4,<2"]
+
 requires-python = ">=3.12"
+
+[project.optional-dependencies]
+# Native LLM providers
+openai = ["giskard-llm[openai]>=1.0.1b3,<2"]
+google = ["giskard-llm[google]>=1.0.1b3,<2"]
+anthropic = ["giskard-llm[anthropic]>=1.0.1b3,<2"]
+azure = ["giskard[openai]"]
+
+# External LLM providers
+litellm = ["giskard-agents[litellm]>=1.0.2b4,<2"]
+
+# Optional checks dependencies
+regorus = ["giskard-checks[regorus]>=1.0.2b4,<2"]
+
+# Optional giskard libs
+scan = ["giskard-scan>=1.0.0b2,<2"]
+
+# Aggregated packages
+all-llms = ["giskard-llm[all]>=1.0.1b3,<2"] # Install all native LLM providers
+all-checks =  ["giskard-checks[all]>=1.0.2b4,<2"] # Install all optional checks dependencies
+full = ["giskard[all-llms,all-checks,scan,litellm]"]
 
 [project.urls]
 "Homepage" = "https://giskard.ai"
@@ -80,9 +97,7 @@ test = [
 ]
 dev = [
     { include-group = "test" },
-    "giskard-llm[openai,google,anthropic]>=1.0.0a1",
-    "giskard-agents[litellm]>=1.0.0a1",
-    "giskard-checks[regorus]>=1.0.0a1",
+    "giskard[full]",
     "ipykernel==7.2.0",
     "pip-audit==2.10.0",
     "pylint-pydantic==0.4.1",

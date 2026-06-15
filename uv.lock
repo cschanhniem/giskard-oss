@@ -813,20 +813,50 @@ wheels = [
 
 [[package]]
 name = "giskard"
-version = "3.0.0a1"
+version = "3.0.0b1"
 source = { editable = "." }
 dependencies = [
-    { name = "giskard-agents" },
     { name = "giskard-checks" },
-    { name = "giskard-core" },
+]
+
+[package.optional-dependencies]
+all-checks = [
+    { name = "giskard-checks", extra = ["all"] },
+]
+all-llms = [
+    { name = "giskard-llm", extra = ["all"] },
+]
+anthropic = [
+    { name = "giskard-llm", extra = ["anthropic"] },
+]
+azure = [
+    { name = "giskard-llm", extra = ["openai"] },
+]
+full = [
+    { name = "giskard-agents", extra = ["litellm"] },
+    { name = "giskard-checks", extra = ["all"] },
+    { name = "giskard-llm", extra = ["all"] },
+    { name = "giskard-scan" },
+]
+google = [
+    { name = "giskard-llm", extra = ["google"] },
+]
+litellm = [
+    { name = "giskard-agents", extra = ["litellm"] },
+]
+openai = [
+    { name = "giskard-llm", extra = ["openai"] },
+]
+regorus = [
+    { name = "giskard-checks", extra = ["regorus"] },
+]
+scan = [
     { name = "giskard-scan" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "giskard-agents", extra = ["litellm"] },
-    { name = "giskard-checks", extra = ["regorus"] },
-    { name = "giskard-llm", extra = ["anthropic", "google", "openai"] },
+    { name = "giskard", extra = ["full"] },
     { name = "ipykernel" },
     { name = "pip-audit" },
     { name = "pylint-pydantic" },
@@ -844,17 +874,23 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "giskard-agents", editable = "libs/giskard-agents" },
+    { name = "giskard", extras = ["all-llms", "all-checks", "scan", "litellm"], marker = "extra == 'full'" },
+    { name = "giskard", extras = ["openai"], marker = "extra == 'azure'" },
+    { name = "giskard-agents", extras = ["litellm"], marker = "extra == 'litellm'", editable = "libs/giskard-agents" },
     { name = "giskard-checks", editable = "libs/giskard-checks" },
-    { name = "giskard-core", editable = "libs/giskard-core" },
-    { name = "giskard-scan", editable = "libs/giskard-scan" },
+    { name = "giskard-checks", extras = ["all"], marker = "extra == 'all-checks'", editable = "libs/giskard-checks" },
+    { name = "giskard-checks", extras = ["regorus"], marker = "extra == 'regorus'", editable = "libs/giskard-checks" },
+    { name = "giskard-llm", extras = ["all"], marker = "extra == 'all-llms'", editable = "libs/giskard-llm" },
+    { name = "giskard-llm", extras = ["anthropic"], marker = "extra == 'anthropic'", editable = "libs/giskard-llm" },
+    { name = "giskard-llm", extras = ["google"], marker = "extra == 'google'", editable = "libs/giskard-llm" },
+    { name = "giskard-llm", extras = ["openai"], marker = "extra == 'openai'", editable = "libs/giskard-llm" },
+    { name = "giskard-scan", marker = "extra == 'scan'", editable = "libs/giskard-scan" },
 ]
+provides-extras = ["openai", "google", "anthropic", "azure", "litellm", "regorus", "scan", "all-llms", "all-checks", "full"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "giskard-agents", extras = ["litellm"], editable = "libs/giskard-agents" },
-    { name = "giskard-checks", extras = ["regorus"], editable = "libs/giskard-checks" },
-    { name = "giskard-llm", extras = ["openai", "google", "anthropic"], editable = "libs/giskard-llm" },
+    { name = "giskard", extras = ["full"] },
     { name = "ipykernel", specifier = "==7.2.0" },
     { name = "pip-audit", specifier = "==2.10.0" },
     { name = "pylint-pydantic", specifier = "==0.4.1" },
@@ -939,6 +975,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "celine-regorus" },
+]
 regorus = [
     { name = "celine-regorus" },
 ]
@@ -947,6 +986,7 @@ regorus = [
 requires-dist = [
     { name = "celine-regorus", marker = "extra == 'regorus'", specifier = ">=0.9.1" },
     { name = "giskard-agents", editable = "libs/giskard-agents" },
+    { name = "giskard-checks", extras = ["regorus"], marker = "extra == 'all'", editable = "libs/giskard-checks" },
     { name = "giskard-core", editable = "libs/giskard-core" },
     { name = "jinja2", specifier = ">=3.1.6,<4" },
     { name = "jsonpath-ng", specifier = ">=1.7.0,<2" },
@@ -956,7 +996,7 @@ requires-dist = [
     { name = "regex", specifier = ">=2026.1.15" },
     { name = "rich", specifier = ">=14.2.0,<16" },
 ]
-provides-extras = ["regorus"]
+provides-extras = ["regorus", "all"]
 
 [[package]]
 name = "giskard-core"
