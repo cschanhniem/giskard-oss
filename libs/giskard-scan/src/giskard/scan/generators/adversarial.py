@@ -1,5 +1,5 @@
 from asyncio import TaskGroup
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from giskard.agents import ChatWorkflow
@@ -98,7 +98,13 @@ class AdversarialScenarioGenerator(ScenarioGenerator, WithGeneratorMixin):
     Each category in :data:`ADVERSARIAL_CATEGORIES` carries its own
     ``tags`` (for example ``threat-type:harmful-content-generation``),
     applied per scenario via :meth:`~giskard.checks.core.scenario.Scenario.with_tags`.
+
+    Attributes:
+        max_steps: Maximum number of conversation turns per scenario.
+            Capped to ``1`` automatically when ``target_mode="singleturn"``.
     """
+
+    max_steps: int = Field(default=3, ge=1)
 
     async def generate_scenario(
         self,
@@ -106,6 +112,7 @@ class AdversarialScenarioGenerator(ScenarioGenerator, WithGeneratorMixin):
         languages: list[str],
         max_scenarios: int | None = None,
         rng: np.random.Generator | None = None,
+        target_mode: Literal["singleturn", "multiturn"] = "multiturn",
     ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
         """Generate adversarial scenarios across all built-in categories.
 
@@ -130,10 +137,15 @@ class AdversarialScenarioGenerator(ScenarioGenerator, WithGeneratorMixin):
                 ``None`` uses :data:`DEFAULT_RULES_PER_CATEGORY` per category.
             rng: Shared random generator for reproducible budget allocation.
                 A fresh ``np.random.default_rng()`` is created when ``None``.
+            target_mode: Desired conversation mode. When ``"singleturn"``,
+                each scenario is built with ``max_steps=1`` regardless of
+                :attr:`max_steps`. When ``"multiturn"`` (default), uses
+                :attr:`max_steps`.
 
         Returns:
             One scenario per generated rule, ordered by category then rule.
         """
+        effective_max_steps = 1 if target_mode == "singleturn" else self.max_steps
         n_cats = len(ADVERSARIAL_CATEGORIES)
 
         if max_scenarios is not None:
@@ -159,7 +171,7 @@ class AdversarialScenarioGenerator(ScenarioGenerator, WithGeneratorMixin):
             .interact(
                 LLMGenerator(
                     prompt_path="giskard.scan::scenarios/adversarial.j2",
-                    max_steps=3,
+                    max_steps=effective_max_steps,
                 )
             )
             .check(Conformity(rule=rule))
