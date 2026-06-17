@@ -1,5 +1,5 @@
 from asyncio import TaskGroup
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from giskard.agents import ChatWorkflow
@@ -10,7 +10,7 @@ from giskard.checks.generators import LLMGenerator
 from giskard.checks.judges import Conformity
 from pydantic import BaseModel, Field
 
-from .base import ScenarioGenerator
+from .base import ScenarioGenerator, TargetMode
 
 DEFAULT_RULES_PER_CATEGORY = 5
 """Number of adversarial rules generated per category when no budget is set."""
@@ -112,7 +112,7 @@ class AdversarialScenarioGenerator(ScenarioGenerator, WithGeneratorMixin):
         languages: list[str],
         max_scenarios: int | None = None,
         rng: np.random.Generator | None = None,
-        target_mode: Literal["singleturn", "multiturn"] = "multiturn",
+        target_mode: TargetMode = "multiturn",
     ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
         """Generate adversarial scenarios across all built-in categories.
 

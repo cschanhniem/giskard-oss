@@ -6,6 +6,8 @@ from giskard.checks.core.interaction import Trace
 from giskard.checks.core.scenario import Scenario
 from pydantic import BaseModel, Field, ValidationError
 
+TargetMode = Literal["singleturn", "multiturn"]
+
 
 class ScenarioGenerator(BaseModel):
     """Abstract base class for all scenario generators.
@@ -19,7 +21,7 @@ class ScenarioGenerator(BaseModel):
         languages: list[str],
         max_scenarios: int | None = None,
         rng: np.random.Generator | None = None,
-        target_mode: Literal["singleturn", "multiturn"] = "multiturn",
+        target_mode: TargetMode = "multiturn",
     ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
         """Generate a list of test scenarios for the described agent.
 
@@ -72,7 +74,7 @@ class DatasetScenarioGenerator(ScenarioGenerator):
         languages: list[str],
         max_scenarios: int | None = None,
         rng: np.random.Generator | None = None,
-        target_mode: Literal["singleturn", "multiturn"] = "multiturn",
+        target_mode: TargetMode = "multiturn",
     ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
         """Load and optionally subsample scenarios from the bundled dataset.
 

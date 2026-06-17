@@ -1,13 +1,13 @@
 from asyncio import TaskGroup
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from giskard.checks.core.interaction import Trace
 from giskard.checks.core.scenario import Scenario
 from giskard.checks.scenarios.suite import Suite
 
-from .generators.base import ScenarioGenerator
+from .generators.base import ScenarioGenerator, TargetMode
 from .registry import _normalize_generator
 
 
@@ -17,7 +17,7 @@ async def _generate_scenarios(
     generators: list[ScenarioGenerator],
     max_scenarios: int | None = None,
     seed: int = 42,
-    target_mode: Literal["singleturn", "multiturn"] = "multiturn",
+    target_mode: TargetMode = "multiturn",
 ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
     rng = np.random.default_rng(seed)
 
@@ -61,7 +61,7 @@ async def generate_suite(
     generators: Sequence[ScenarioGenerator | type[ScenarioGenerator]],
     max_scenarios: int | None = None,
     seed: int = 42,
-    target_mode: Literal["singleturn", "multiturn"] = "multiturn",
+    target_mode: TargetMode = "multiturn",
 ) -> Suite[Any, Any]:
     """Generate a test suite by running the supplied generators.
 

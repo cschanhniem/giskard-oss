@@ -9,6 +9,24 @@ from giskard.scan.generators.base import ScenarioGenerator
 from giskard.scan.vulnerability import vulnerability_suite_generator_registry
 
 
+class _ModeTracker(ScenarioGenerator):
+    """Records the last target_mode seen by each named instance."""
+
+    name: str
+    seen_mode: str = ""
+
+    async def generate_scenario(
+        self,
+        description: str,
+        languages: list[str],
+        max_scenarios: int | None = None,
+        rng=None,
+        target_mode: str = "multiturn",
+    ):
+        self.seen_mode = target_mode
+        return []
+
+
 class _StubGenerator(ScenarioGenerator):
     """Returns a fixed number of scenarios for testing."""
 
@@ -207,55 +225,28 @@ async def test_generate_suite_reproducibility():
 
 async def test_generate_suite_passes_target_mode_to_generators():
     """target_mode is forwarded to each generator's generate_scenario."""
-    received: dict[str, str] = {}
-
-    class _ModeTracker(ScenarioGenerator):
-        name: str
-
-        async def generate_scenario(
-            self,
-            description: str,
-            languages: list[str],
-            max_scenarios: int | None = None,
-            rng=None,
-            target_mode: str = "multiturn",
-        ):
-            received[self.name] = target_mode
-            return []
+    tracker_a = _ModeTracker(name="a")
+    tracker_b = _ModeTracker(name="b")
 
     await generate_suite(
         "My chatbot",
         languages=["en"],
-        generators=[_ModeTracker(name="a"), _ModeTracker(name="b")],
+        generators=[tracker_a, tracker_b],
         target_mode="singleturn",
     )
-    assert received["a"] == "singleturn"
-    assert received["b"] == "singleturn"
+    assert tracker_a.seen_mode == "singleturn"
+    assert tracker_b.seen_mode == "singleturn"
 
 
 async def test_generate_suite_target_mode_defaults_to_multiturn():
-    received: dict[str, str] = {}
-
-    class _ModeTracker(ScenarioGenerator):
-        name: str
-
-        async def generate_scenario(
-            self,
-            description: str,
-            languages: list[str],
-            max_scenarios: int | None = None,
-            rng=None,
-            target_mode: str = "multiturn",
-        ):
-            received[self.name] = target_mode
-            return []
+    tracker = _ModeTracker(name="z")
 
     await generate_suite(
         "My chatbot",
         languages=["en"],
-        generators=[_ModeTracker(name="z")],
+        generators=[tracker],
     )
-    assert received["z"] == "multiturn"
+    assert tracker.seen_mode == "multiturn"
 
 
 async def test_generate_suite_singleturn_passes_scenarios_through():
