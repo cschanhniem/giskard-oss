@@ -2,10 +2,8 @@ from typing import Any
 
 import numpy as np
 import pytest
-from giskard.checks.core import Interact
 from giskard.checks.core.interaction import Trace
 from giskard.checks.core.scenario import Scenario
-from giskard.checks.generators import LLMGenerator
 from giskard.scan.catalog import generate_suite
 from giskard.scan.generators.base import ScenarioGenerator
 from giskard.scan.vulnerability import vulnerability_suite_generator_registry
@@ -260,135 +258,8 @@ async def test_generate_suite_target_mode_defaults_to_multiturn():
     assert received["z"] == "multiturn"
 
 
-async def test_generate_suite_singleturn_drops_multi_step_scenarios():
-    """Scenarios with >1 step are dropped in singleturn mode."""
-    from giskard.checks.core.scenario import Step
-
-    multi_step = Scenario(
-        name="multi-step",
-        steps=[Step(interacts=[], checks=[]), Step(interacts=[], checks=[])],
-    )
-
-    class _MultiStepGen(ScenarioGenerator):
-        async def generate_scenario(
-            self,
-            description,
-            languages,
-            max_scenarios=None,
-            rng=None,
-            target_mode="multiturn",
-        ):
-            return [multi_step]
-
-    suite = await generate_suite(
-        "My chatbot",
-        languages=["en"],
-        generators=[_MultiStepGen()],
-        target_mode="singleturn",
-    )
-    assert suite.scenarios == []
-
-
-async def test_generate_suite_singleturn_drops_multi_interact_step_scenarios():
-    """Scenarios with >1 interact in a step are dropped in singleturn mode."""
-    from giskard.checks.core.scenario import Step
-
-    multi_interact = Scenario(
-        name="multi-interact",
-        steps=[
-            Step(
-                interacts=[
-                    Interact(inputs="hello", outputs="hi"),
-                    Interact(inputs="world", outputs="there"),
-                ],
-                checks=[],
-            )
-        ],
-    )
-
-    class _MultiInteractGen(ScenarioGenerator):
-        async def generate_scenario(
-            self,
-            description,
-            languages,
-            max_scenarios=None,
-            rng=None,
-            target_mode="multiturn",
-        ):
-            return [multi_interact]
-
-    suite = await generate_suite(
-        "My chatbot",
-        languages=["en"],
-        generators=[_MultiInteractGen()],
-        target_mode="singleturn",
-    )
-    assert suite.scenarios == []
-
-
-async def test_generate_suite_singleturn_patches_llm_generator_max_steps():
-    """Interact with LLMGenerator(max_steps>1) gets max_steps capped to 1."""
-
-    patched = Scenario(name="patched").interact(
-        LLMGenerator(prompt="ask something", max_steps=5)
-    )
-
-    class _LLMGen(ScenarioGenerator):
-        async def generate_scenario(
-            self,
-            description,
-            languages,
-            max_scenarios=None,
-            rng=None,
-            target_mode="multiturn",
-        ):
-            return [patched]
-
-    suite = await generate_suite(
-        "My chatbot",
-        languages=["en"],
-        generators=[_LLMGen()],
-        target_mode="singleturn",
-    )
-    assert len(suite.scenarios) == 1
-    raw = suite.scenarios[0].steps[0].interacts[0]
-    assert isinstance(raw, Interact)
-    assert isinstance(raw.inputs, LLMGenerator)
-    assert raw.inputs.max_steps == 1
-
-
-async def test_generate_suite_singleturn_does_not_mutate_original_scenario():
-    """_adapt_for_singleturn must not mutate the generator's original scenario object."""
-    original = Scenario(name="original").interact(
-        LLMGenerator(prompt="ask something", max_steps=5)
-    )
-
-    class _ReusedGen(ScenarioGenerator):
-        async def generate_scenario(
-            self,
-            description,
-            languages,
-            max_scenarios=None,
-            rng=None,
-            target_mode="multiturn",
-        ):
-            return [original]
-
-    await generate_suite(
-        "My chatbot",
-        languages=["en"],
-        generators=[_ReusedGen()],
-        target_mode="singleturn",
-    )
-    # The original scenario must be unchanged after the safeguard ran.
-    raw = original.steps[0].interacts[0]
-    assert isinstance(raw, Interact)
-    assert isinstance(raw.inputs, LLMGenerator)
-    assert raw.inputs.max_steps == 5
-
-
-async def test_generate_suite_singleturn_keeps_single_turn_scenarios():
-    """Single-turn scenarios pass the safeguard unchanged."""
+async def test_generate_suite_singleturn_passes_scenarios_through():
+    """In singleturn mode, scenarios from generators are passed through unchanged."""
     single = Scenario(name="ok").interact("hello", outputs=lambda inputs: "world")
 
     class _SingleGen(ScenarioGenerator):
@@ -410,32 +281,3 @@ async def test_generate_suite_singleturn_keeps_single_turn_scenarios():
     )
     assert len(suite.scenarios) == 1
     assert suite.scenarios[0].name == "ok"
-
-
-async def test_generate_suite_multiturn_does_not_apply_safeguard():
-    """In multiturn mode the safeguard is not applied — multi-step scenarios pass through."""
-    from giskard.checks.core.scenario import Step
-
-    multi_step = Scenario(
-        name="multi-step",
-        steps=[Step(interacts=[], checks=[]), Step(interacts=[], checks=[])],
-    )
-
-    class _MultiStepGen(ScenarioGenerator):
-        async def generate_scenario(
-            self,
-            description,
-            languages,
-            max_scenarios=None,
-            rng=None,
-            target_mode="multiturn",
-        ):
-            return [multi_step]
-
-    suite = await generate_suite(
-        "My chatbot",
-        languages=["en"],
-        generators=[_MultiStepGen()],
-        target_mode="multiturn",
-    )
-    assert len(suite.scenarios) == 1

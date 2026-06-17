@@ -1,5 +1,6 @@
 """Scenario generator for GOAT-style multi-turn attacks."""
 
+import logging
 from typing import Any, Literal, override
 
 import numpy as np
@@ -10,6 +11,8 @@ from giskard.checks.judges import LLMJudge
 from pydantic import BaseModel, Field
 
 from .base import ScenarioGenerator
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_GOAT_MAX_TURNS = 10
 """Default number of attacker turns"""
@@ -162,6 +165,9 @@ class GOATAttackScenarioGenerator(ScenarioGenerator):
             One multi-turn GOAT scenario per selected objective.
         """
         if target_mode == "singleturn":
+            logger.warning(
+                "GOATAttackScenarioGenerator requires multiturn mode; skipping (target_mode='singleturn')."
+            )
             return []
         assignments = self._select_objectives(max_scenarios, languages, rng)
         return [

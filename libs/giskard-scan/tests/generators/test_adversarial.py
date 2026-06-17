@@ -5,9 +5,9 @@ from giskard.checks.generators import LLMGenerator
 from giskard.scan.generators.adversarial import AdversarialScenarioGenerator
 
 
-def test_adversarial_generator_has_max_steps_field():
+def test_adversarial_generator_has_max_turns_field():
     gen = AdversarialScenarioGenerator()
-    assert gen.max_steps == 3
+    assert gen.max_turns == 3
 
 
 async def test_adversarial_singleturn_scenarios_use_max_steps_1():
@@ -24,7 +24,7 @@ async def test_adversarial_singleturn_scenarios_use_max_steps_1():
 
 
 async def test_adversarial_multiturn_scenarios_use_configured_max_steps():
-    gen = AdversarialScenarioGenerator(max_steps=5)
+    gen = AdversarialScenarioGenerator(max_turns=5)
     with patch.object(gen, "_generate_rules", new=AsyncMock(return_value=["rule1"])):
         scenarios = await gen.generate_scenario(
             "A safety chatbot", ["en"], max_scenarios=1, target_mode="multiturn"

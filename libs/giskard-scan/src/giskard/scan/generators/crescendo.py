@@ -1,5 +1,6 @@
 """Scenario generator for Crescendo-style multi-turn attacks."""
 
+import logging
 from typing import Any, Literal, override
 
 import numpy as np
@@ -10,6 +11,8 @@ from giskard.checks.judges import LLMJudge
 from pydantic import Field
 
 from .base import ScenarioGenerator
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CRESCENDO_MAX_TURNS = 10
 """Default number of attacker turns."""
@@ -73,6 +76,9 @@ class CrescendoAttackScenarioGenerator(ScenarioGenerator):
             One multi-turn Crescendo scenario per selected objective.
         """
         if target_mode == "singleturn":
+            logger.warning(
+                "CrescendoAttackScenarioGenerator requires multiturn mode; skipping (target_mode='singleturn')."
+            )
             return []
         assignments = self._select_objectives(max_scenarios, languages, rng)
         return [

@@ -3,41 +3,12 @@ from collections.abc import Sequence
 from typing import Any, Literal
 
 import numpy as np
-from giskard.checks.core.input_generator import InputGenerator
 from giskard.checks.core.interaction import Trace
-from giskard.checks.core.interaction.interact import Interact
 from giskard.checks.core.scenario import Scenario
 from giskard.checks.scenarios.suite import Suite
 
 from .generators.base import ScenarioGenerator
 from .registry import _normalize_generator
-
-
-def _adapt_for_singleturn(
-    scenario: Scenario[Any, Any, Trace[Any, Any]],
-) -> Scenario[Any, Any, Trace[Any, Any]] | None:
-    """Return a singleturn-compatible copy of the scenario, or None to drop it.
-
-    Drops scenarios with multiple steps or multiple interacts per step.
-    Patches any InputGenerator with max_steps > 1 down to max_steps=1.
-    Never mutates the original scenario object.
-    """
-    if len(scenario.steps) > 1:
-        return None
-    for step in scenario.steps:
-        if len(step.interacts) > 1:
-            return None
-    # Deep-copy before patching so we never mutate the generator's object.
-    scenario = scenario.model_copy(deep=True)
-    for step in scenario.steps:
-        for interact in step.interacts:
-            if (
-                isinstance(interact, Interact)
-                and isinstance(interact.inputs, InputGenerator)
-                and getattr(interact.inputs, "max_steps", 1) > 1
-            ):
-                interact.inputs = interact.inputs.model_copy(update={"max_steps": 1})
-    return scenario
 
 
 async def _generate_scenarios(
@@ -122,7 +93,4 @@ async def generate_suite(
         seed,
         target_mode=target_mode,
     )
-    if target_mode == "singleturn":
-        adapted = [_adapt_for_singleturn(s) for s in scenarios]
-        scenarios = [s for s in adapted if s is not None]
     return Suite(name="Scenarios", scenarios=scenarios)

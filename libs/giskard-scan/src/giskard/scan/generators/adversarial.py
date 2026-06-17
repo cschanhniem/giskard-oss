@@ -100,11 +100,11 @@ class AdversarialScenarioGenerator(ScenarioGenerator, WithGeneratorMixin):
     applied per scenario via :meth:`~giskard.checks.core.scenario.Scenario.with_tags`.
 
     Attributes:
-        max_steps: Maximum number of conversation turns per scenario.
+        max_turns: Maximum number of conversation turns per scenario.
             Capped to ``1`` automatically when ``target_mode="singleturn"``.
     """
 
-    max_steps: int = Field(default=3, ge=1)
+    max_turns: int = Field(default=3, ge=1)
 
     async def generate_scenario(
         self,
@@ -139,13 +139,13 @@ class AdversarialScenarioGenerator(ScenarioGenerator, WithGeneratorMixin):
                 A fresh ``np.random.default_rng()`` is created when ``None``.
             target_mode: Desired conversation mode. When ``"singleturn"``,
                 each scenario is built with ``max_steps=1`` regardless of
-                :attr:`max_steps`. When ``"multiturn"`` (default), uses
-                :attr:`max_steps`.
+                :attr:`max_turns`. When ``"multiturn"`` (default), uses
+                :attr:`max_turns`.
 
         Returns:
             One scenario per generated rule, ordered by category then rule.
         """
-        effective_max_steps = 1 if target_mode == "singleturn" else self.max_steps
+        effective_max_steps = 1 if target_mode == "singleturn" else self.max_turns
         n_cats = len(ADVERSARIAL_CATEGORIES)
 
         if max_scenarios is not None:
