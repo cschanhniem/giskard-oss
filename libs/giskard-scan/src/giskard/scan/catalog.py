@@ -20,12 +20,16 @@ def _adapt_for_singleturn(
 
     Drops scenarios with multiple steps or multiple interacts per step.
     Patches any InputGenerator with max_steps > 1 down to max_steps=1.
+    Never mutates the original scenario object.
     """
     if len(scenario.steps) > 1:
         return None
     for step in scenario.steps:
         if len(step.interacts) > 1:
             return None
+    # Deep-copy before patching so we never mutate the generator's object.
+    scenario = scenario.model_copy(deep=True)
+    for step in scenario.steps:
         for interact in step.interacts:
             if (
                 isinstance(interact, Interact)

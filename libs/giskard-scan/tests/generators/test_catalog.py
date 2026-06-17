@@ -357,6 +357,36 @@ async def test_generate_suite_singleturn_patches_llm_generator_max_steps():
     assert raw.inputs.max_steps == 1
 
 
+async def test_generate_suite_singleturn_does_not_mutate_original_scenario():
+    """_adapt_for_singleturn must not mutate the generator's original scenario object."""
+    original = Scenario(name="original").interact(
+        LLMGenerator(prompt="ask something", max_steps=5)
+    )
+
+    class _ReusedGen(ScenarioGenerator):
+        async def generate_scenario(
+            self,
+            description,
+            languages,
+            max_scenarios=None,
+            rng=None,
+            target_mode="multiturn",
+        ):
+            return [original]
+
+    await generate_suite(
+        "My chatbot",
+        languages=["en"],
+        generators=[_ReusedGen()],
+        target_mode="singleturn",
+    )
+    # The original scenario must be unchanged after the safeguard ran.
+    raw = original.steps[0].interacts[0]
+    assert isinstance(raw, Interact)
+    assert isinstance(raw.inputs, LLMGenerator)
+    assert raw.inputs.max_steps == 5
+
+
 async def test_generate_suite_singleturn_keeps_single_turn_scenarios():
     """Single-turn scenarios pass the safeguard unchanged."""
     single = Scenario(name="ok").interact("hello", outputs=lambda inputs: "world")
