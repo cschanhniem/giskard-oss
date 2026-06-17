@@ -1,6 +1,6 @@
 """Scenario generator for Crescendo-style multi-turn attacks."""
 
-from typing import Any, override
+from typing import Any, Literal, override
 
 import numpy as np
 from giskard.checks.core.interaction import Trace
@@ -49,6 +49,7 @@ class CrescendoAttackScenarioGenerator(ScenarioGenerator):
         languages: list[str],
         max_scenarios: int | None = None,
         rng: np.random.Generator | None = None,
+        target_mode: Literal["singleturn", "multiturn"] = "multiturn",
     ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
         """Generate Crescendo attack scenarios for the described agent.
 
@@ -63,12 +64,16 @@ class CrescendoAttackScenarioGenerator(ScenarioGenerator):
             includes all built-in objectives.
         rng : numpy.random.Generator, optional
             Random generator used for reproducible objective sampling.
+        target_mode : Literal["singleturn", "multiturn"]
+            Mode of interaction with the target. Crescendo only supports multiturn.
 
         Returns
         -------
         list[Scenario]
             One multi-turn Crescendo scenario per selected objective.
         """
+        if target_mode == "singleturn":
+            return []
         assignments = self._select_objectives(max_scenarios, languages, rng)
         return [
             self._build_scenario(

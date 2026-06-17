@@ -71,3 +71,19 @@ async def test_goat_generator_builds_multiturn_scenario_with_annotations():
 
 def test_goat_generator_uses_default_max_turns():
     assert GOATAttackScenarioGenerator().max_turns == DEFAULT_GOAT_MAX_TURNS
+
+
+async def test_goat_singleturn_returns_empty():
+    gen = GOATAttackScenarioGenerator()
+    scenarios = await gen.generate_scenario(
+        "A safety chatbot", ["en"], target_mode="singleturn"
+    )
+    assert scenarios == []
+
+
+async def test_goat_multiturn_still_returns_scenarios():
+    gen = GOATAttackScenarioGenerator()
+    scenarios = await gen.generate_scenario(
+        "A safety chatbot", ["en"], target_mode="multiturn"
+    )
+    assert len(scenarios) == len(DEFAULT_GOAT_OBJECTIVES)
