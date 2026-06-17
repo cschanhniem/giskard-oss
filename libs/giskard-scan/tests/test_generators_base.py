@@ -18,10 +18,8 @@ def test_scenario_generator_is_importable():
     assert isinstance(gen, ScenarioGenerator)
 
 
-def test_scenario_generator_generate_scenario_accepts_target_mode():
+async def test_scenario_generator_generate_scenario_accepts_target_mode():
     """generate_scenario must accept target_mode without raising TypeError."""
-    import asyncio
-
     from giskard.scan.generators.base import ScenarioGenerator
 
     class _Stub(ScenarioGenerator):
@@ -36,9 +34,7 @@ def test_scenario_generator_generate_scenario_accepts_target_mode():
             return []
 
     gen = _Stub()
-    result = asyncio.get_event_loop().run_until_complete(
-        gen.generate_scenario("desc", ["en"], target_mode="singleturn")
-    )
+    result = await gen.generate_scenario("desc", ["en"], target_mode="singleturn")
     assert result == []
 
 
