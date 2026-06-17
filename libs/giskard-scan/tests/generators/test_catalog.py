@@ -21,6 +21,7 @@ class _StubGenerator(ScenarioGenerator):
         languages: list[str],
         max_scenarios: int | None = None,
         rng: np.random.Generator | None = None,
+        target_mode: str = "multiturn",
     ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
         n = max_scenarios if max_scenarios is not None else self.scenario_count
         return [Scenario(name=f"stub-{self.name}-{i}") for i in range(n)]
@@ -91,6 +92,7 @@ async def test_generate_suite_max_scenarios_distributed_across_generators():
             languages: list[str],
             max_scenarios: int | None = None,
             rng: np.random.Generator | None = None,
+            target_mode: str = "multiturn",
         ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
             received[self.name] = max_scenarios
             n = max_scenarios if max_scenarios is not None else 0
@@ -121,6 +123,7 @@ async def test_generate_suite_no_max_passes_none_to_generators():
             languages: list[str],
             max_scenarios: int | None = None,
             rng: np.random.Generator | None = None,
+            target_mode: str = "multiturn",
         ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
             received[self.name] = max_scenarios
             return []
@@ -176,6 +179,7 @@ async def test_generate_suite_reproducibility():
             languages: list[str],
             max_scenarios: int | None = None,
             rng: np.random.Generator | None = None,
+            target_mode: str = "multiturn",
         ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
             return [
                 Scenario(name=f"{self.name}-{i}") for i in range(max_scenarios or 0)
@@ -199,3 +203,56 @@ async def test_generate_suite_reproducibility():
     )
 
     assert [s.name for s in suite_a.scenarios] == [s.name for s in suite_b.scenarios]
+
+
+async def test_generate_suite_passes_target_mode_to_generators():
+    """target_mode is forwarded to each generator's generate_scenario."""
+    received: dict[str, str] = {}
+
+    class _ModeTracker(ScenarioGenerator):
+        name: str
+
+        async def generate_scenario(
+            self,
+            description: str,
+            languages: list[str],
+            max_scenarios: int | None = None,
+            rng=None,
+            target_mode: str = "multiturn",
+        ):
+            received[self.name] = target_mode
+            return []
+
+    await generate_suite(
+        "My chatbot",
+        languages=["en"],
+        generators=[_ModeTracker(name="a"), _ModeTracker(name="b")],
+        target_mode="singleturn",
+    )
+    assert received["a"] == "singleturn"
+    assert received["b"] == "singleturn"
+
+
+async def test_generate_suite_target_mode_defaults_to_multiturn():
+    received: dict[str, str] = {}
+
+    class _ModeTracker(ScenarioGenerator):
+        name: str
+
+        async def generate_scenario(
+            self,
+            description: str,
+            languages: list[str],
+            max_scenarios: int | None = None,
+            rng=None,
+            target_mode: str = "multiturn",
+        ):
+            received[self.name] = target_mode
+            return []
+
+    await generate_suite(
+        "My chatbot",
+        languages=["en"],
+        generators=[_ModeTracker(name="z")],
+    )
+    assert received["z"] == "multiturn"

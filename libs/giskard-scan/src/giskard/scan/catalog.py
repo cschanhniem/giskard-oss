@@ -1,6 +1,6 @@
 from asyncio import TaskGroup
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from giskard.checks.core.interaction import Trace
@@ -17,6 +17,7 @@ async def _generate_scenarios(
     generators: list[ScenarioGenerator],
     max_scenarios: int | None = None,
     seed: int = 42,
+    target_mode: Literal["singleturn", "multiturn"] = "multiturn",
 ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
     rng = np.random.default_rng(seed)
 
@@ -31,7 +32,11 @@ async def _generate_scenarios(
                 tasks.append(
                     task_group.create_task(
                         generator.generate_scenario(
-                            description, languages, int(n), child_rng
+                            description,
+                            languages,
+                            int(n),
+                            child_rng,
+                            target_mode=target_mode,
                         )
                     )
                 )
@@ -39,7 +44,11 @@ async def _generate_scenarios(
             for generator in generators:
                 tasks.append(
                     task_group.create_task(
-                        generator.generate_scenario(description, languages)
+                        generator.generate_scenario(
+                            description,
+                            languages,
+                            target_mode=target_mode,
+                        )
                     )
                 )
 
@@ -52,12 +61,9 @@ async def generate_suite(
     generators: Sequence[ScenarioGenerator | type[ScenarioGenerator]],
     max_scenarios: int | None = None,
     seed: int = 42,
+    target_mode: Literal["singleturn", "multiturn"] = "multiturn",
 ) -> Suite[Any, Any]:
     """Generate a test suite by running the supplied generators.
-
-    This generic suite builder resolves generator classes or instances,
-    distributes the optional scenario budget, runs generation concurrently,
-    and wraps the results in a named Suite.
 
     Args:
         description: Natural-language description of the agent under test.
@@ -67,6 +73,10 @@ async def generate_suite(
             None lets each generator apply its own default.
         seed: Integer seed for the top-level RNG, ensuring reproducibility
             across runs with the same arguments.
+        target_mode: Whether the agent under test supports single-turn or
+            multi-turn conversations. ``"singleturn"`` skips generators that
+            are multi-turn by design and caps turn budgets to 1 on others.
+            Defaults to ``"multiturn"``.
 
     Returns:
         A Suite containing all generated scenarios, ready for execution.
@@ -76,6 +86,11 @@ async def generate_suite(
 
     resolved = [_normalize_generator(g) for g in generators]
     scenarios = await _generate_scenarios(
-        description, languages, resolved, max_scenarios, seed
+        description,
+        languages,
+        resolved,
+        max_scenarios,
+        seed,
+        target_mode=target_mode,
     )
     return Suite(name="Scenarios", scenarios=scenarios)
