@@ -1,6 +1,6 @@
 """Scenario generator for Crescendo-style multi-turn attacks."""
 
-from typing import Any, ClassVar, override
+from typing import Any, override
 
 import numpy as np
 from giskard.checks import LLMGenerator, LLMJudge, Scenario, Trace
@@ -36,10 +36,6 @@ class CrescendoAttackScenarioGenerator(ScenarioGenerator):
     max_turns : int
         Maximum number of attacker turns per scenario.
     """
-
-    tags: ClassVar[list[str]] = [
-        "gsk:threat-type='harmful-content-generation'",
-    ]
 
     max_turns: int = Field(default=DEFAULT_CRESCENDO_MAX_TURNS, ge=1)
 
@@ -129,5 +125,11 @@ class CrescendoAttackScenarioGenerator(ScenarioGenerator):
                     "language": language,
                     "max_turns": self.max_turns,
                 }
+            )
+            .with_tags(
+                [
+                    "threat-type:harmful-content-generation",
+                    "probe-type:multi-turn",
+                ]
             )
         )

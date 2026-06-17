@@ -1,20 +1,18 @@
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 import numpy as np
-from giskard.checks import Scenario, Trace
-from pydantic import BaseModel, ValidationError
+
+from giskard.checks.core.interaction import Trace
+from giskard.checks.core.scenario import Scenario
+from pydantic import BaseModel, Field, ValidationError
 
 
 class ScenarioGenerator(BaseModel):
     """Abstract base class for all scenario generators.
 
-    Subclasses must implement :meth:`generate_scenario`. The ``tags`` class
-    variable carries threat-classification metadata (e.g. OWASP LLM Top-10
-    tags) that downstream tooling can use to annotate or filter suites.
+    Subclasses must implement :meth:`generate_scenario`.
     """
-
-    tags: ClassVar[list[str]] = []
 
     async def generate_scenario(
         self,
@@ -59,9 +57,11 @@ class DatasetScenarioGenerator(ScenarioGenerator):
     Attributes:
         dataset_name: Stem of the ``.jsonl`` file inside the package
             ``data/`` directory (e.g. ``"prompt_injection"``).
+        tags: Tags applied to every loaded scenario via :meth:`~giskard.checks.core.scenario.Scenario.with_tags`.
     """
 
     dataset_name: str
+    tags: list[str] = Field(default_factory=list)
 
     async def generate_scenario(
         self,
@@ -93,7 +93,7 @@ class DatasetScenarioGenerator(ScenarioGenerator):
             )
 
         scenarios = []
-        with path.open() as f:
+        with path.open(encoding="utf-8") as f:
             for line_num, line in enumerate(f, start=1):
                 line = line.strip()
                 if not line:
@@ -109,6 +109,8 @@ class DatasetScenarioGenerator(ScenarioGenerator):
                         "languages": languages,
                     }
                 )
+                if self.tags:
+                    scenario = scenario.with_tags(self.tags)
                 scenarios.append(scenario)
 
         if max_scenarios is not None and max_scenarios < len(scenarios):
