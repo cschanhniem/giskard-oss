@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from giskard.checks.core.interaction import Trace
@@ -19,6 +19,7 @@ class ScenarioGenerator(BaseModel):
         languages: list[str],
         max_scenarios: int | None = None,
         rng: np.random.Generator | None = None,
+        target_mode: Literal["singleturn", "multiturn"] = "multiturn",
     ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
         """Generate a list of test scenarios for the described agent.
 
@@ -34,6 +35,9 @@ class ScenarioGenerator(BaseModel):
                 maintaining reproducibility. Direct callers typically pass a
                 fresh generator or ``None`` to let the implementation create
                 one.
+            target_mode: Desired conversation mode for generated scenarios.
+                ``"singleturn"`` generates single-turn test cases. ``"multiturn"``
+                (default) generates multi-turn test cases.
 
         Returns:
             A list of :class:`~giskard.checks.core.scenario.Scenario` objects
@@ -68,6 +72,7 @@ class DatasetScenarioGenerator(ScenarioGenerator):
         languages: list[str],
         max_scenarios: int | None = None,
         rng: np.random.Generator | None = None,
+        target_mode: Literal["singleturn", "multiturn"] = "multiturn",
     ) -> list[Scenario[Any, Any, Trace[Any, Any]]]:
         """Load and optionally subsample scenarios from the bundled dataset.
 
@@ -79,6 +84,9 @@ class DatasetScenarioGenerator(ScenarioGenerator):
                 ``None``, the full dataset is returned.
             rng: Random generator used for subset sampling.  A fresh
                 ``np.random.default_rng()`` is created if ``None``.
+            target_mode: Desired conversation mode for generated scenarios.
+                ``"singleturn"`` generates single-turn test cases. ``"multiturn"``
+                (default) generates multi-turn test cases.
 
         Returns:
             A list of annotated :class:`~giskard.checks.core.scenario.Scenario`
