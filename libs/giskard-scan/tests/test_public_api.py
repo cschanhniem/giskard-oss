@@ -22,3 +22,14 @@ def test_vulnerability_suite_generator_registry_contains_builtin_generators():
     assert CrescendoAttackScenarioGenerator in types
     assert GOATAttackScenarioGenerator in types
     assert PromptInjectionScenarioGenerator in types
+
+
+def test_vulnerability_scan_accepts_target_mode_param():
+    """vulnerability_scan signature must include target_mode parameter."""
+    import inspect
+
+    from giskard.scan import vulnerability_scan
+
+    sig = inspect.signature(vulnerability_scan)
+    assert "target_mode" in sig.parameters
+    assert sig.parameters["target_mode"].default == "multiturn"
