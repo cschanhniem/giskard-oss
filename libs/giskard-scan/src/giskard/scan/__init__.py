@@ -7,13 +7,15 @@ from giskard.core.utils import get_lib_version
 
 from .catalog import generate_suite
 from .generators.adversarial import AdversarialScenarioGenerator
-from .generators.base import DatasetScenarioGenerator, ScenarioGenerator
+from .generators.base import LocalDatasetScenarioGenerator, ScenarioGenerator
 from .generators.crescendo import CrescendoAttackScenarioGenerator
 from .generators.goat import GOATAttackScenarioGenerator
+from .generators.huggingface import HuggingFaceDatasetScenarioGenerator
 from .generators.knowledge_base import KnowledgeBaseScenarioGenerator
 from .generators.prompt_injection import PromptInjectionScenarioGenerator
 from .quality import quality_scan, quality_suite_generator_registry
 from .registry import SuiteGeneratorRegistry
+from .types import ScanOptions
 from .utils.knowledge_base import Document, KnowledgeBase
 from .vulnerability import vulnerability_scan, vulnerability_suite_generator_registry
 
@@ -24,14 +26,16 @@ __version__ = get_lib_version("giskard-scan")
 __all__ = [
     "generate_suite",
     "ScenarioGenerator",
-    "DatasetScenarioGenerator",
+    "LocalDatasetScenarioGenerator",
     "AdversarialScenarioGenerator",
     "CrescendoAttackScenarioGenerator",
     "GOATAttackScenarioGenerator",
+    "HuggingFaceDatasetScenarioGenerator",
     "PromptInjectionScenarioGenerator",
     "KnowledgeBaseScenarioGenerator",
     "Document",
     "KnowledgeBase",
+    "ScanOptions",
     "SuiteGeneratorRegistry",
     "quality_suite_generator_registry",
     "quality_scan",
