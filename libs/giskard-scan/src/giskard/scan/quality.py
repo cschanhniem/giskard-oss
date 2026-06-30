@@ -1,5 +1,6 @@
 """Quality scan entry points for giskard.scan."""
 
+import logging
 import warnings
 
 from giskard.checks import SuiteResult, Target, Trace
@@ -16,6 +17,9 @@ from .generators.knowledge_base import (
 )
 from .registry import SuiteGeneratorRegistry
 from .utils.knowledge_base import KnowledgeBase, normalize_knowledge_base
+from .utils.recommendation import generate_quality_recommendation
+
+logger = logging.getLogger(__name__)
 
 QUALITY_GENERATOR_TYPES: tuple[type[KnowledgeBaseScenarioGenerator], ...] = (
     HallucinationScenarioGenerator,
@@ -37,7 +41,7 @@ async def quality_scan[InputType, OutputType, TraceType: Trace](  # pyright: ign
     knowledge_base: KnowledgeBase | list[str] | None = None,
     max_scenarios: int | None = None,
     seed: int = 42,
-    group_by: str | None = "quality",
+    group_by: str | None = "component",
     parallel: bool = True,
     max_concurrency: int | None = None,
     target_mode: TargetMode = "multiturn",
@@ -45,7 +49,8 @@ async def quality_scan[InputType, OutputType, TraceType: Trace](  # pyright: ign
     """Generate and run the standard quality scan suite.
 
     Builds a suite from the quality scenario generator registry, runs it
-    against the target, prints the grouped report, and returns the suite result.
+    against the target, prints the grouped report with a recommendation, and
+    returns the suite result.
 
     Args:
         target: Agent or provider target to evaluate.
@@ -67,7 +72,7 @@ async def quality_scan[InputType, OutputType, TraceType: Trace](  # pyright: ign
             Defaults to ``"multiturn"``.
 
     Returns:
-        The completed suite result for the quality scan.
+        The completed suite result with a generated quality recommendation.
     """
     knowledge_base = normalize_knowledge_base(
         _warn_if_missing_knowledge_base(knowledge_base)
@@ -83,13 +88,19 @@ async def quality_scan[InputType, OutputType, TraceType: Trace](  # pyright: ign
         knowledge_base=knowledge_base,
     )
 
-    result = await suite.run(
+    result: SuiteResult = await suite.run(
         target,
         parallel=parallel,
         max_concurrency=max_concurrency,
     )
-    result.print_report(group_by=group_by)
-    return result
+    try:
+        recommendation = await generate_quality_recommendation(result)
+    except Exception:
+        logger.exception("Quality recommendation generation failed")
+        recommendation = ""
+    quality_result = result.model_copy(update={"recommendation": recommendation})
+    quality_result.print_report(group_by=group_by)
+    return quality_result
 
 
 def _warn_if_missing_knowledge_base(
